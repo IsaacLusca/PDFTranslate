@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF translate</title>
+</head>
+<body>
+    <h1>PDF translate</h1>
+    <form action="/translate" method="post" enctype="multipart/form-data">
+        <label for="file">Selecione um arquivo PDF:</label>
+        <input type="file" id="file" name="file" accept=".pdf" required>
+        <br><br>
+        <label for="language">Selecione o idioma de destino:</label>
+        <select id="language" name="language" required>
+            <option value="en">Inglês</option>
+            <option value="pt-br">Português</option>    
+            <!-- Adicione mais idiomas conforme necessário -->
+        </select>
+        <br><br>
+        <button type="submit">Traduzir</button>
+    </form>
+
+</body>
+</html>
