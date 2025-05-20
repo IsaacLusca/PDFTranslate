@@ -1,19 +1,19 @@
 # from app import app
-from flask import redirect, render_template, request, url_for, session, flash, Blueprint
+from flask import redirect, render_template, request, url_for, session, flash, Blueprint, send_file
 import os
 from googletrans import Translator
 from langdetect import detect
 from deep_translator import GoogleTranslator
 
 # função para extrair texto do PDF 
-from app.utils import extract_text_from_pdf, translate_text_list
+from app.utils import extract_text_from_pdf, translate_text_list, extract_and_translate_pdf, generate_pdf_from_text
 
 # criação do blueprint
 # O blueprint é uma forma de organizar o código em Flask, permitindo dividir a aplicação em partes menores e mais gerenciáveis.
 main = Blueprint('main', __name__)
 
 # definindo o diretório de upload
-UPLOAD_FOLDER = 'temp'
+UPLOAD_FOLDER = os.path.join(os.getcwd(), 'temp')  # agora vira absoluto
 
 # Verifica se o diretório de upload existe, caso contrário, cria o diretório.
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -45,3 +45,21 @@ def translate():
     ]
     html = "<br><hr>".join(f"<h3>Página {i+1}</h3><pre>{p}</pre>" for i, p in enumerate(translated_pages))
     return html
+
+@main.route('/translate_to_pdf', methods=['POST'])
+# Função para traduzir o PDF e gerar um novo PDF com o texto traduzido
+def translate_to_pdf():
+    file = request.files['file']
+    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(filepath)
+
+    target_lang = request.form['language']
+    translated_pages = extract_and_translate_pdf(filepath, target_lang)
+
+    filename = os.path.splitext(file.filename)[0]  
+    output_filename = f"{filename}_translated_{target_lang}.pdf"
+    output_path = os.path.join(UPLOAD_FOLDER, output_filename)    
+
+    generate_pdf_from_text(translated_pages, output_path)
+
+    return send_file(output_path, as_attachment=True)

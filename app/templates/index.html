@@ -6,7 +6,7 @@
     <title>PDF translate</title>
 </head>
 <body>
-    <h1>PDF translate</h1>
+    <h1>PDF translate text</h1>
     <form action="/translate" method="post" enctype="multipart/form-data">
         <label for="file">Selecione um arquivo PDF:</label>
         <input type="file" id="file" name="file" accept=".pdf" required>
@@ -21,6 +21,21 @@
         <br><br>
         <button type="submit">Traduzir</button>
     </form>
-
+    
+    <h1>PDF translate and convert to pdf</h1>
+    <form action="/translate_to_pdf" method="post" enctype="multipart/form-data">
+        <label for="file">Selecione um arquivo PDF:</label>
+        <input type="file" id="file" name="file" accept=".pdf" required>
+        <br><br>
+        <label for="language">Selecione o idioma de destino:</label>
+        <select id="language" name="language" required>
+            <option value="en">Inglês</option>
+            <option value="pt">Português</option>    
+            <option value="es">Espanhol</option>    
+            <option value="ru">Russo</option>    
+        </select>
+        <br><br>
+        <button type="submit">Traduzir</button>
+    </form>
 </body>
 </html>
