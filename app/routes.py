@@ -2,6 +2,8 @@
 from flask import redirect, render_template, request, url_for, session, flash, Blueprint
 import os
 from googletrans import Translator
+from langdetect import detect
+from deep_translator import GoogleTranslator
 
 # função para extrair texto do PDF 
 from app.utils import extract_text_from_pdf, translate_text_list
@@ -31,8 +33,15 @@ def translate():
 
     # pages recebe o texto extraído do PDF
     pages = extract_text_from_pdf(filepath)
-    
-    translated_pages = translate_text_list(pages, dest='en')
 
+    target_lang = request.form['language']
+
+    # detecta pela primeira página:
+    detected_lang = detect(pages[0]) if pages else 'auto'
+
+    translated_pages = [
+        GoogleTranslator(source=detected_lang, target=target_lang).translate(p)
+        for p in pages
+    ]
     html = "<br><hr>".join(f"<h3>Página {i+1}</h3><pre>{p}</pre>" for i, p in enumerate(translated_pages))
     return html
