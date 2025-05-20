@@ -1,1 +1,1 @@
-FLASK_APP=tradutor.py
+FLASK_APP=run.py
