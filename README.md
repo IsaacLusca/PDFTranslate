@@ -19,7 +19,7 @@
 - Upload de imagens (formatos como `.jpg`, `.jpeg`, `.png`, etc.).
 - Utilização de OCR (Reconhecimento Óptico de Caracteres) para extrair o texto.
 - Tradução automática para o idioma selecionado.
-- Exibição do texto original e sua versão traduzida.
+- Exibição do texto traduzido.
 
 ---
 
