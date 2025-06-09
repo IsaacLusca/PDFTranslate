@@ -44,6 +44,19 @@
             </div>
             <button type="submit" class="btn btn-success">Traduzir</button>
         </form>
+
+        <h2>Traduzir imagem</h2>
+        <form action="/translate_image" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" required>
+            <select name="language">
+                <option value="en">Inglês</option>
+                <option value="pt">Português</option>
+                <option value="es">Espanhol</option>
+                <option value="ru">Russo</option>
+            </select>
+            <button type="submit">Traduzir</button>
+        </form>
+        
     </div>
 </body>
 </html>

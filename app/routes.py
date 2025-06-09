@@ -7,6 +7,7 @@ from deep_translator import GoogleTranslator
 
 # função para extrair texto do PDF 
 from app.utils import extract_text_from_pdf, translate_text_list, extract_and_translate_pdf, generate_pdf_from_text
+from app.utils import translate_image_text, extract_text_from_image
 
 # criação do blueprint
 # O blueprint é uma forma de organizar o código em Flask, permitindo dividir a aplicação em partes menores e mais gerenciáveis.
@@ -63,3 +64,15 @@ def translate_to_pdf():
     generate_pdf_from_text(translated_pages, output_path)
 
     return send_file(output_path, as_attachment=True)
+
+
+@main.route('/translate_image', methods=['POST'])
+def translate_image():
+    file = request.files['file']
+    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(filepath)
+
+    target_lang = request.form['language']
+    translated_text = translate_image_text(filepath, target_lang)
+
+    return f"<h3>Texto traduzido da imagem:</h3><pre>{translated_text}</pre>"
