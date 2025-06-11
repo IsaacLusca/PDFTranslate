@@ -7,7 +7,7 @@ from deep_translator import GoogleTranslator
 
 # função para extrair texto do PDF 
 from app.utils import extract_text_from_pdf, translate_text_list, extract_and_translate_pdf, generate_pdf_from_text
-from app.utils import translate_image_text, extract_text_from_image
+from app.utils import translate_image_text, extract_text_from_image, translate_pdf_preserving_layout
 
 # criação do blueprint
 # O blueprint é uma forma de organizar o código em Flask, permitindo dividir a aplicação em partes menores e mais gerenciáveis.
@@ -44,8 +44,7 @@ def translate():
         GoogleTranslator(source=detected_lang, target=target_lang).translate(p)
         for p in pages
     ]
-    html = "<br><hr>".join(f"<h3>Página {i+1}</h3><pre>{p}</pre>" for i, p in enumerate(translated_pages))
-    return html
+    return "<br><hr>".join(f"<h3>Página {i+1}</h3><pre>{p}</pre>" for i, p in enumerate(translated_pages))
 
 @main.route('/translate_to_pdf', methods=['POST'])
 # Função para traduzir o PDF e gerar um novo PDF com o texto traduzido
@@ -55,13 +54,17 @@ def translate_to_pdf():
     file.save(filepath)
 
     target_lang = request.form['language']
-    translated_pages = extract_and_translate_pdf(filepath, target_lang)
-
+    
+    # Traduzir preservando layout
+    translated_doc = translate_pdf_preserving_layout(filepath, target_lang)
+    
+    # Gerar arquivo de saída
     filename = os.path.splitext(file.filename)[0]  
     output_filename = f"{filename}_translated_{target_lang}.pdf"
-    output_path = os.path.join(UPLOAD_FOLDER, output_filename)    
-
-    generate_pdf_from_text(translated_pages, output_path)
+    output_path = os.path.join(UPLOAD_FOLDER, output_filename)
+    
+    translated_doc.save(output_path)
+    translated_doc.close()
 
     return send_file(output_path, as_attachment=True)
 

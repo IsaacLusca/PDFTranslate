@@ -49,3 +49,59 @@ def translate_image_text(image_path, target_lang):
     translated_text = GoogleTranslator(source='auto', target=target_lang).translate(text)
     return translated_text
     
+
+# def extract_text_blocks_from_pdf(path):
+#     """extrai blocos com coordenadas"""
+#     blocks_pages = []
+#     with fitz.open(path) as doc:
+#         for page in doc:
+#             blocks = page.get_text("blocks")
+#             blocks_pages.append(blocks)
+#     return blocks_pages
+
+def translate_pdf_preserving_layout(path, target_lang):
+    translated_doc = fitz.open()
+    
+    with fitz.open(path) as src_doc:
+        for page in src_doc:
+            new_page = translated_doc.new_page(
+                width=page.rect.width,
+                height=page.rect.height
+            )
+
+            text_dict = page.get_text("dict")
+
+            for block in text_dict["blocks"]:
+                if "lines" not in block:
+                    continue
+
+                for line in block["lines"]:
+                    for span in line["spans"]:
+                        text = span["text"].strip()
+                        if not text:
+                            continue
+                        try:
+                            translated = GoogleTranslator(source='auto', target=target_lang).translate(text)
+                        except Exception as e:
+                            print(f"Erro ao traduzir span: {e}")
+                            translated = text
+                        
+                        # coordenadas
+                        x, y = span["origin"]
+                        font_size = span["size"]
+                        font_name = "helv"  
+
+                        new_page.insert_text(
+                            (x, y),
+                            translated,
+                            fontsize=font_size,
+                            fontname=font_name,
+                            fill=(0, 0, 0)
+                        )
+
+    return translated_doc
+
+def generate_translated_pdf(translated_doc, output_path):
+    """salvar documento traduzido"""
+    translated_doc.save(output_path)
+    translated_doc.close()
