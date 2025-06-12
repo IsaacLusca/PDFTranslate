@@ -60,21 +60,51 @@ def translate_image_text(image_path, target_lang):
 #     return blocks_pages
 
 def translate_pdf_preserving_layout(path, target_lang):
-    translated_doc = fitz.open()
-    
+    # Leitura do PDF de origem e extração prévia de imagens
+    images_per_page = {}  # chave: número da página, valor: lista de dicts {bbox, image_bytes}
     with fitz.open(path) as src_doc:
-        for page in src_doc:
+        for page_num, page in enumerate(src_doc):
+            images = []
+            # get_images(full=True) retorna lista de tuplas; vamos extrair bbox + bytes
+            img_list = page.get_images(full=True)
+            # get_image_info() devolve infos paralelas (mesma ordem)
+            img_info_list = page.get_image_info()
+            for img_idx, img in enumerate(img_list):
+                xref = img[0]
+                base_image = src_doc.extract_image(xref)
+                img_bytes = base_image["image"]
+                info = img_info_list[img_idx]
+                bbox = fitz.Rect(info["bbox"])
+                images.append({
+                    "bbox": bbox,
+                    "bytes": img_bytes,
+                    "mask": base_image.get("mask", None)
+                })
+            images_per_page[page_num] = images
+
+    # Criação do documento traduzido
+    translated_doc = fitz.open()
+    with fitz.open(path) as src_doc:
+        for page_num, page in enumerate(src_doc):
+            # cria nova página com mesmas dimensões
             new_page = translated_doc.new_page(
                 width=page.rect.width,
                 height=page.rect.height
             )
 
-            text_dict = page.get_text("dict")
+            # 2.1) Insere todas as imagens armazenadas para esta página
+            for img in images_per_page.get(page_num, []):
+                new_page.insert_image(
+                    img["bbox"],
+                    stream=img["bytes"],
+                    mask=img["mask"]
+                )
 
+            # 2.2) Processa e insere blocos de texto traduzido
+            text_dict = page.get_text("dict")
             for block in text_dict["blocks"]:
                 if "lines" not in block:
                     continue
-
                 for line in block["lines"]:
                     for span in line["spans"]:
                         text = span["text"].strip()
@@ -89,7 +119,7 @@ def translate_pdf_preserving_layout(path, target_lang):
                         # coordenadas
                         x, y = span["origin"]
                         font_size = span["size"]
-                        font_name = "helv"  
+                        font_name = "helv"
 
                         new_page.insert_text(
                             (x, y),
