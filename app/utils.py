@@ -92,7 +92,7 @@ def translate_pdf_preserving_layout(path, target_lang):
                 height=page.rect.height
             )
 
-            # 2.1) Insere todas as imagens armazenadas para esta página
+            # Insere todas as imagens armazenadas para esta página
             for img in images_per_page.get(page_num, []):
                 new_page.insert_image(
                     img["bbox"],
@@ -100,7 +100,7 @@ def translate_pdf_preserving_layout(path, target_lang):
                     mask=img["mask"]
                 )
 
-            # 2.2) Processa e insere blocos de texto traduzido
+            # Processa e insere blocos de texto traduzido
             text_dict = page.get_text("dict")
             for block in text_dict["blocks"]:
                 if "lines" not in block:
