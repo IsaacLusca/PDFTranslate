@@ -25,6 +25,21 @@
 
 ---
 
+## Exemplo de entrada e saída
+
+### Tradução de um PDF, mantendo o layout e gerando outro PDF
+- Na imagem abaixo, temos um exemplo de uma página de um PDF. 
+![alt text](image.png)
+
+- Ao executar e selecionar o idioma de preferência, basta clicar em **Traduzir** e esperar o seu PDF ser gerado.
+
+![alt text](image-1.png)
+
+- O PDF gerado nesse exemplo, traduzindo o arquivo inglês para português:
+
+![alt text](image-2.png)
+
+---
 ## Como executar
 
 ### 1. Pré-requisitos

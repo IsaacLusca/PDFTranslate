@@ -9,6 +9,24 @@
 <body class="bg-light">
 
     <div class="container py-5">
+        <h1 class="mb-4 text-center">Traduz PDF e converte para outro PDF</h1>
+        <form action="/translate_to_pdf" method="post" enctype="multipart/form-data" class="border p-4 rounded bg-white shadow-sm">
+            <div class="mb-3">
+                <label for="file2" class="form-label">Selecione um arquivo PDF:</label>
+                <input type="file" id="file2" name="file" accept=".pdf" class="form-control" required>
+            </div>
+            <div class="mb-3">
+                <label for="language2" class="form-label">Selecione o idioma de destino:</label>
+                <select id="language2" name="language" class="form-select" required>
+                    <option value="en">Inglês</option>
+                    <option value="pt">Português</option>
+                    <option value="es">Espanhol</option>
+                    <option value="ru">Russo</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-success">Traduzir</button>
+
+        </form>
         <h1 class="mb-4 text-center">Traduz PDF para texto</h1>
         <form action="/translate" method="post" enctype="multipart/form-data" class="border p-4 rounded bg-white shadow-sm mb-5">
             <div class="mb-3">
@@ -27,24 +45,6 @@
             <button type="submit" class="btn btn-primary">Traduzir</button>
         </form>
 
-        <h1 class="mb-4 text-center">Traduz PDF e converte para outro PDF</h1>
-        <form action="/translate_to_pdf" method="post" enctype="multipart/form-data" class="border p-4 rounded bg-white shadow-sm">
-            <div class="mb-3">
-                <label for="file2" class="form-label">Selecione um arquivo PDF:</label>
-                <input type="file" id="file2" name="file" accept=".pdf" class="form-control" required>
-            </div>
-            <div class="mb-3">
-                <label for="language2" class="form-label">Selecione o idioma de destino:</label>
-                <select id="language2" name="language" class="form-select" required>
-                    <option value="en">Inglês</option>
-                    <option value="pt">Português</option>
-                    <option value="es">Espanhol</option>
-                    <option value="ru">Russo</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-success">Traduzir</button>
-        </form>
-
         <h1 class="mb-4 text-center">Traduzir imagem</h1>
         <form action="/translate_image" method="post" enctype="multipart/form-data" class="border p-4 rounded bg-white shadow-sm">
             <label for="file3" class="form-label">Selecione uma imagem:</label>
@@ -58,7 +58,7 @@
             </select>
             <button type="submit" class="btn btn-secondary">Traduzir</button>
         </form>
-
     </div>
+    
 </body>
 </html>
