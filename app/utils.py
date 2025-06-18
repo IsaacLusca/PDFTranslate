@@ -4,6 +4,7 @@ from deep_translator import GoogleTranslator
 from langdetect import detect
 from PIL import Image
 import pytesseract
+from concurrent.futures import ThreadPoolExecutor, as_completed
 pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 
@@ -17,8 +18,21 @@ def extract_text_from_pdf(path):
     return text_pages
 
 # Função para traduzir uma lista de textos
-def translate_text_list(pages, dest):
-    return [GoogleTranslator(source='auto', target=dest).translate(p) for p in pages]
+def translate_text_list(texts, dest, max_workers=10):
+    # traduções de textos paralelos
+    def _translate(t):
+        try:
+            return GoogleTranslator(source='auto', target=dest).translate(t)
+        except Exception:
+            return t
+
+    results = [None] * len(texts)
+    with ThreadPoolExecutor(max_workers=max_workers) as exe:
+        futures = {exe.submit(_translate, texts[i]): i for i in range(len(texts))}
+        for fut in as_completed(futures):
+            idx = futures[fut]
+            results[idx] = fut.result()
+    return results
 
 # Função para extrair e traduzir o texto do PDF
 def extract_and_translate_pdf(path, target_lang):
@@ -60,75 +74,34 @@ def translate_image_text(image_path, target_lang):
 #     return blocks_pages
 
 def translate_pdf_preserving_layout(path, target_lang):
-    # Leitura do PDF de origem e extração prévia de imagens
-    images_per_page = {}  # chave: número da página, valor: lista de dicts {bbox, image_bytes}
-    with fitz.open(path) as src_doc:
-        for page_num, page in enumerate(src_doc):
-            images = []
-            # get_images(full=True) retorna lista de tuplas; vamos extrair bbox + bytes
-            img_list = page.get_images(full=True)
-            # get_image_info() devolve infos paralelas (mesma ordem)
-            img_info_list = page.get_image_info()
-            for img_idx, img in enumerate(img_list):
-                xref = img[0]
-                base_image = src_doc.extract_image(xref)
-                img_bytes = base_image["image"]
-                info = img_info_list[img_idx]
-                bbox = fitz.Rect(info["bbox"])
-                images.append({
-                    "bbox": bbox,
-                    "bytes": img_bytes,
-                    "mask": base_image.get("mask", None)
-                })
-            images_per_page[page_num] = images
-
-    # Criação do documento traduzido
+    src = fitz.open(path)
     translated_doc = fitz.open()
-    with fitz.open(path) as src_doc:
-        for page_num, page in enumerate(src_doc):
-            # cria nova página com mesmas dimensões
-            new_page = translated_doc.new_page(
-                width=page.rect.width,
-                height=page.rect.height
+    
+    for p in src:
+        new = translated_doc.new_page(width=p.rect.width, height=p.rect.height)
+        new.show_pdf_page(p.rect, src, p.number)
+        text_dict = p.get_text("dict")
+        spans = [
+            span
+            for block in text_dict["blocks"] if "lines" in block
+            for line in block["lines"]
+            for span in line["spans"]
+            if span["text"].strip()
+        ]
+
+        originals = [span["text"] for span in spans]
+        translated = translate_text_list(originals, target_lang, max_workers=10)
+
+        for span, tr in zip(spans, translated):
+            r = fitz.Rect(span["bbox"])
+            new.draw_rect(r, fill=(1,1,1), color=None)
+            new.insert_text(
+                span["origin"],
+                tr,
+                fontsize=span["size"],
+                fontname="helv",
+                fill=(0,0,0),
             )
-
-            # Insere todas as imagens armazenadas para esta página
-            for img in images_per_page.get(page_num, []):
-                new_page.insert_image(
-                    img["bbox"],
-                    stream=img["bytes"],
-                    mask=img["mask"]
-                )
-
-            # Processa e insere blocos de texto traduzido
-            text_dict = page.get_text("dict")
-            for block in text_dict["blocks"]:
-                if "lines" not in block:
-                    continue
-                for line in block["lines"]:
-                    for span in line["spans"]:
-                        text = span["text"].strip()
-                        if not text:
-                            continue
-                        try:
-                            translated = GoogleTranslator(source='auto', target=target_lang).translate(text)
-                        except Exception as e:
-                            print(f"Erro ao traduzir span: {e}")
-                            translated = text
-                        
-                        # coordenadas
-                        x, y = span["origin"]
-                        font_size = span["size"]
-                        font_name = "helv"
-
-                        new_page.insert_text(
-                            (x, y),
-                            translated,
-                            fontsize=font_size,
-                            fontname=font_name,
-                            fill=(0, 0, 0)
-                        )
-
     return translated_doc
 
 def generate_translated_pdf(translated_doc, output_path):
