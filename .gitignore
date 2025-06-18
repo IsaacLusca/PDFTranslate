@@ -2,8 +2,6 @@
 /.pytest_cache
 __pycache__
 
-*.pdf
-*.jpg
-*.jpeg
-*.png
-*.gif
+/temp
+
+temp_compressed.pdf
