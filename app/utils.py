@@ -1,11 +1,20 @@
-# importação do PyMuPDF
 import fitz 
 from deep_translator import GoogleTranslator
 from langdetect import detect
 from PIL import Image
-import pytesseract
+import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+TESSERACT_CMD = os.environ.get('TESSERACT_CMD', 'tesseract')
+pytesseract = None
+HAS_TESSERACT = False
+try:
+    import pytesseract
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+    pytesseract.get_tesseract_version()
+    HAS_TESSERACT = True
+except Exception:
+    pass
 
 
 # Extraindo o texto do pdf.
@@ -52,12 +61,12 @@ def generate_pdf_from_text(pages, output_path):
     doc.save(output_path)
     doc.close()
 
-# func para extrair texto da imagem
 def extract_text_from_image(image_path):
+    if not HAS_TESSERACT:
+        raise RuntimeError("Tesseract OCR não está disponível no servidor.")
     image = Image.open(image_path)
     return pytesseract.image_to_string(image)
 
-# func para traduzir o texto extraído da imagem
 def translate_image_text(image_path, target_lang):
     text = extract_text_from_image(image_path)
     translated_text = GoogleTranslator(source='auto', target=target_lang).translate(text)

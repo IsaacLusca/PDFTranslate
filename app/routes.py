@@ -58,11 +58,15 @@ def translate_to_pdf():
 
 @main.route('/translate_image', methods=['POST'])
 def translate_image():
-    file = request.files['file']
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-    file.save(filepath)
-
-    target_lang = request.form['language']
-    translated_text = translate_image_text(filepath, target_lang)
-
-    return render_template('result.html', title='Resultado', translated_text=translated_text, description='Texto extraído da imagem e traduzido.')
+    try:
+        file = request.files['file']
+        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+        file.save(filepath)
+        target_lang = request.form['language']
+        translated_text = translate_image_text(filepath, target_lang)
+        return render_template('result.html', title='Resultado',
+                               translated_text=translated_text,
+                               description='Texto extraído da imagem e traduzido.')
+    except RuntimeError as e:
+        flash(str(e), 'error')
+        return render_template('index.html')
