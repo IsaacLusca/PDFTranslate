@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="result-page">
+  <div class="hero" style="padding: 32px 0;">
+    <h1>Resultado da Tradução</h1>
+    <p>{{ description }}</p>
+  </div>
+
+  <div class="result-card">
+    <h2>Texto Traduzido</h2>
+    <div class="result-text">{{ translated_text | safe }}</div>
+    <div class="result-actions">
+      <a href="{{ url_for('main.index') }}" class="btn-back">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 12H5M12 19l-7-7 7-7" />
+        </svg>
+        Nova tradução
+      </a>
+    </div>
+  </div>
+</div>
+{% endblock %}

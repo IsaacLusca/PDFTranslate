@@ -1,88 +1,62 @@
-# PDF Translate
+# PDFTranslate
 
-**PDF Translate** é uma aplicação voltada para a tradução automática de documentos em PDF e imagens que contenham texto. A ferramenta foi projetada para facilitar a leitura e compreensão de materiais em idiomas estrangeiros, utilizando recursos de inteligência artificial aplicada, como OCR com redes neurais e modelos de tradução automática baseados em IA. Com funcionalidades simples e intuitivas, permite extrair, traduzir e reconstruir textos de forma eficiente, mantendo o layout original sempre que possível.
-
----
+Aplicação web para tradução automática de documentos PDF e imagens, utilizando OCR com redes neurais e modelos de tradução automática.
 
 ## Funcionalidades
 
-### Tradução de PDFs
-- Utilizando técnicas de **Inteligência Artificial**, como extração baseada em redes neurais (OCR) e tradução automática por modelos de linguagem.
-- Upload de arquivos PDF.
-- Seleção do idioma de destino.
-- Extração automática de texto do PDF.
-- Tradução do conteúdo com **inteligência artificial**.
-- Duas opções de saída:
-  - **Texto traduzido** (em formato simples).
-  - **PDF traduzido** (geração de novo arquivo PDF com o texto traduzido).
+- **PDF para PDF:** Traduz o documento mantendo o layout original
+- **PDF para Texto:** Extrai e traduz o texto para visualização
+- **Imagem para Texto:** Reconhece texto em imagens (OCR) e traduz
+- Suporte aos idiomas: português, inglês, espanhol e russo
+- Tradução paralela para melhor performance
 
-### Tradução de Imagens (OCR com IA)
-- Baseado em OCR inteligente com Tesseract (redes neurais LSTM) e modelos de tradução automática.
-- Upload de imagens (formatos como `.jpg`, `.jpeg`, `.png`, etc.).
-- Utilização de OCR (Reconhecimento Óptico de Caracteres) para extrair o texto.
-- Tradução automática para o idioma selecionado.
-- Exibição do texto traduzido.
+## Tecnologias
 
----
+- **Backend:** Python, Flask
+- **OCR:** Tesseract (redes neurais LSTM)
+- **Tradução:** Google Translate API (deep-translator)
+- **PDF:** PyMuPDF (fitz)
+- **Frontend:** HTML, CSS (tema escuro personalizado)
 
-## Exemplo de entrada e saída
+## Como rodar
 
-### Tradução de um PDF, mantendo o layout e gerando outro PDF
-- Na imagem abaixo, temos um exemplo de uma página de um PDF. 
-![alt text](image.png)
+```bash
+# Clone o repositório
+git clone https://github.com/IsaacLusca/PDFTranslate.git
+cd PDFTranslate
 
-- Ao executar e selecionar o idioma de preferência, basta clicar em **Traduzir** e esperar o seu PDF ser gerado.
+# Crie e ative o ambiente virtual
+python -m venv .venv
+.venv\Scripts\activate   # Windows
+# source .venv/bin/activate   # Linux/Mac
 
-![alt text](image-1.png)
+# Instale as dependências
+pip install -r requirements.txt
 
-- O PDF gerado nesse exemplo, traduzindo o arquivo inglês para português:
+# Instale o Tesseract OCR (necessário para tradução de imagens)
+# Baixe em: https://github.com/tesseract-ocr/tesseract
+# E configure o caminho em app/utils.py
 
-![alt text](image-2.png)
+# Execute o servidor
+python run.py
+```
 
----
-## Como executar
+Acesse em: `http://localhost:5000`
 
-### 1. Pré-requisitos
+## Estrutura do projeto
 
-- Python 3 instalado na máquina.
-- Instalar as dependências do projeto com o comando:
-  ```bash
-  pip install -r requirements.txt
-  ```
-
-### 2. Instalação do Tesseract (para OCR)
-
-Para utilizar a funcionalidade de tradução de imagens:
-
-1. Baixe e instale o Tesseract OCR: [https://github.com/tesseract-ocr/tesseract](https://github.com/tesseract-ocr/tesseract)
-
-2. Após instalar, verifique o caminho do caminho executável do Tesseract no arquivo `utils.py`:
-
-  ```bash
-  import pytesseract
-  
-  pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-  
-  ```
-
----
-
-### 3. Executando o projeto
-
-Você pode iniciar a aplicação de duas formas:
-
-- **Modo debug (atualiza automaticamente ao salvar):**
-  ```bash
-  python run.py
-  ```
-
-
-- **Modo padrão**
-  ```bash
-  flask run
-  ```
-
-A aplicação estará disponível em:  
-`http://localhost:5000`
-
----
+```
+PDFTranslate/
+├── app/
+│   ├── static/css/style.css   # Estilos da interface
+│   ├── templates/
+│   │   ├── base.html          # Layout base
+│   │   ├── index.html         # Página inicial com formulários
+│   │   └── result.html        # Página de resultado
+│   ├── __init__.py            # Factory do app Flask
+│   ├── routes.py              # Rotas da aplicação
+│   └── utils.py               # Funções de OCR, PDF e tradução
+├── run.py                     # Ponto de entrada
+├── requirements.txt           # Dependências
+└── README.md
+```
