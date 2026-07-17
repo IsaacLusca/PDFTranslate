@@ -67,7 +67,7 @@ def translate_to_pdf():
         filename = os.path.splitext(file.filename)[0]
         output_filename = f"{filename}_translated_{target_lang}.pdf"
         output_path = os.path.join(TEMP_DIR, output_filename)
-        translated_doc.save(output_path)
+        translated_doc.save(output_path, garbage=4, deflate=True)
         translated_doc.close()
 
         with open(output_path, 'rb') as f:
