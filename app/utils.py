@@ -84,12 +84,13 @@ def translate_image_text(image_path, target_lang):
 
 def translate_pdf_preserving_layout(path, target_lang):
     src = fitz.open(path)
-    translated_doc = fitz.open()
-    
-    for p in src:
-        new = translated_doc.new_page(width=p.rect.width, height=p.rect.height)
-        new.show_pdf_page(p.rect, src, p.number)
-        text_dict = p.get_text("dict")
+    dst = fitz.open()
+    dst.insert_pdf(src)
+    src.close()
+
+    for pno in range(len(dst)):
+        page = dst[pno]
+        text_dict = page.get_text("dict")
         spans = [
             span
             for block in text_dict["blocks"] if "lines" in block
@@ -103,15 +104,19 @@ def translate_pdf_preserving_layout(path, target_lang):
 
         for span, tr in zip(spans, translated):
             r = fitz.Rect(span["bbox"])
-            new.draw_rect(r, fill=(1,1,1), color=None)
-            new.insert_text(
+            page.add_redact_annot(r, text="")
+
+        page.apply_redactions()
+
+        for span, tr in zip(spans, translated):
+            page.insert_text(
                 span["origin"],
                 tr,
                 fontsize=span["size"],
                 fontname="helv",
                 fill=(0,0,0),
             )
-    return translated_doc
+    return dst
 
 def generate_translated_pdf(translated_doc, output_path):
     """salvar documento traduzido"""
