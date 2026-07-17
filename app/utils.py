@@ -893,55 +893,118 @@ def translate_image_text(image_path, target_lang):
     return translated_text
     
 
-# def extract_text_blocks_from_pdf(path):
-#     """extrai blocos com coordenadas"""
-#     blocks_pages = []
-#     with fitz.open(path) as doc:
-#         for page in doc:
-#             blocks = page.get_text("blocks")
-#             blocks_pages.append(blocks)
-#     return blocks_pages
+def _prepare_page_translation(page, target_lang):
+    text_dict = page.get_text("dict")
+    text_blocks = [b for b in text_dict["blocks"] if "lines" in b]
+    if not text_blocks:
+        return [], [], {}, []
+
+    table_cells = _detect_table_cells(page)
+    layout_items, all_spans = _extract_layout_items(text_blocks, table_cells=table_cells)
+    if not layout_items:
+        return [], all_spans, {}, []
+
+    translatable_items = [item for item in layout_items if item.get("translate", _has_letters(item["text"]))]
+    originals = [item["text"] for item in translatable_items]
+    translated = translate_text_list(originals, target_lang, max_workers=6)
+    translated_by_id = {
+        id(item): translated_text
+        for item, translated_text in zip(translatable_items, translated)
+    }
+
+    image_rects = [
+        fitz.Rect(block["bbox"])
+        for block in text_dict["blocks"]
+        if "lines" not in block and "bbox" in block
+    ]
+    obstacles = [fitz.Rect(item["rect"]) for item in layout_items] + image_rects
+    return layout_items, all_spans, translated_by_id, obstacles
+
+
+def _insert_translated_layout(page, layout_items, translated_by_id, obstacles):
+    for item in layout_items:
+        text = translated_by_id.get(id(item), item["text"])
+        rect = _expanded_rect(item, page.rect, obstacles)
+        _insert_fitted_text(page, rect, text, item)
+
+
+def _span_background_color(page, span):
+    span_rect = fitz.Rect(span["bbox"])
+    center_x, center_y = _span_center(span)
+    best = None
+
+    for drawing in page.get_drawings():
+        fill = drawing.get("fill")
+        if fill is None:
+            continue
+        for item in drawing.get("items", []):
+            if item[0] != "re":
+                continue
+            rect = fitz.Rect(item[1])
+            if rect.x0 <= center_x <= rect.x1 and rect.y0 <= center_y <= rect.y1:
+                area = rect.width * rect.height
+                if best is None or area < best[0]:
+                    best = (area, fill)
+
+    return best[1] if best else (1, 1, 1)
+
+
+def _draw_text_mask(page, spans, source_page=None):
+    if not spans:
+        return
+
+    grouped_rects = {}
+    for span in spans:
+        rect = fitz.Rect(span["bbox"])
+        rect.x0 -= 0.4
+        rect.x1 += 0.4
+        rect.y0 -= 0.4
+        rect.y1 += 0.4
+        fill = _span_background_color(source_page, span) if source_page else (1, 1, 1)
+        key = tuple(round(c, 4) for c in fill)
+        grouped_rects.setdefault(key, []).append(rect)
+
+    for fill, rects in grouped_rects.items():
+        shape = page.new_shape()
+        for rect in rects:
+            shape.draw_rect(rect)
+        shape.finish(color=None, fill=fill)
+        shape.commit(overlay=True)
+
 
 def translate_pdf_preserving_layout(path, target_lang):
     doc = fitz.open(path)
 
-    for pno in range(len(doc)):
-        page = doc[pno]
-        text_dict = page.get_text("dict")
-
-        text_blocks = [b for b in text_dict["blocks"] if "lines" in b]
-        if not text_blocks:
-            continue
-
-        table_cells = _detect_table_cells(page)
-        layout_items, all_spans = _extract_layout_items(text_blocks, table_cells=table_cells)
+    for page in doc:
+        layout_items, all_spans, translated_by_id, obstacles = _prepare_page_translation(page, target_lang)
         if not layout_items:
             continue
-
-        translatable_items = [item for item in layout_items if item.get("translate", _has_letters(item["text"]))]
-        originals = [item["text"] for item in translatable_items]
-        translated = translate_text_list(originals, target_lang, max_workers=6)
-        translated_by_id = {
-            id(item): translated_text
-            for item, translated_text in zip(translatable_items, translated)
-        }
-
-        image_rects = [
-            fitz.Rect(block["bbox"])
-            for block in text_dict["blocks"]
-            if "lines" not in block and "bbox" in block
-        ]
-        obstacles = [fitz.Rect(item["rect"]) for item in layout_items] + image_rects
 
         for span in all_spans:
             page.add_redact_annot(fitz.Rect(span["bbox"]), text="")
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
-        for item in layout_items:
-            text = translated_by_id.get(id(item), item["text"])
-            rect = _expanded_rect(item, page.rect, obstacles)
-            _insert_fitted_text(page, rect, text, item)
+        _insert_translated_layout(page, layout_items, translated_by_id, obstacles)
     return doc
+
+
+def translate_pdf_with_overlay_mask(path, target_lang):
+    src = fitz.open(path)
+    translated_doc = fitz.open()
+
+    for page_number, source_page in enumerate(src):
+        target_page = translated_doc.new_page(width=source_page.rect.width, height=source_page.rect.height)
+        target_page.show_pdf_page(source_page.rect, src, page_number)
+
+        layout_items, all_spans, translated_by_id, obstacles = _prepare_page_translation(source_page, target_lang)
+        if not layout_items:
+            continue
+
+        _draw_text_mask(target_page, all_spans, source_page=source_page)
+        _insert_translated_layout(target_page, layout_items, translated_by_id, obstacles)
+
+    src.close()
+    return translated_doc
 
 def generate_translated_pdf(translated_doc, output_path):
     """salvar documento traduzido"""
