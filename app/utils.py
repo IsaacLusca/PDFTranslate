@@ -4,6 +4,7 @@ from deep_translator import GoogleTranslator
 from langdetect import detect
 from PIL import Image
 import os
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -89,13 +90,65 @@ def _span_fontfile(span):
 
 
 def _insert_font_args(item):
-    fontfile = item.get("fontfile")
+    return {"fontname": item["fontname"]}
+
+
+def _needs_external_font(text):
+    try:
+        text.encode("latin-1")
+        return False
+    except UnicodeEncodeError:
+        return True
+
+
+def _base_font_text(text):
+    replacements = {
+        "\u00a0": " ",
+        "\u2013": "-",
+        "\u2014": "-",
+        "\u2018": "'",
+        "\u2019": "'",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2022": "-",
+        "\u2026": "...",
+        "\u00ad": "-",
+    }
+    chars = []
+    for ch in text:
+        if ch in replacements:
+            chars.append(replacements[ch])
+            continue
+        try:
+            ch.encode("latin-1")
+            chars.append(ch)
+            continue
+        except UnicodeEncodeError:
+            pass
+
+        category = unicodedata.category(ch)
+        if category.startswith("P"):
+            chars.append("-")
+        elif category.startswith("S"):
+            chars.append("*")
+        elif category.startswith("Z"):
+            chars.append(" ")
+        elif category.startswith("C"):
+            chars.append("*")
+        else:
+            chars.append(ch)
+    return "".join(chars)
+
+
+def _text_font_args(item, text):
+    text = _base_font_text(text)
+    fontfile = item.get("fontfile") if _needs_external_font(text) else None
     if fontfile:
         return {
             "fontname": item.get("font_alias", "pdftranslate"),
             "fontfile": fontfile,
-        }
-    return {"fontname": item["fontname"]}
+        }, text
+    return _insert_font_args(item), text
 
 
 def _span_color(span):
@@ -253,20 +306,25 @@ def _insert_fitted_text(page, rect, text, item):
     if not text:
         return True
 
+    lineheight = 1.0 if item["kind"] == "block" else 0.95
+
     def _fits(candidate, size):
+        font_args, candidate = _text_font_args(item, candidate)
         scratch = fitz.open()
         scratch_page = scratch.new_page(width=page.rect.width, height=page.rect.height)
         ret = scratch_page.insert_textbox(
             rect,
             candidate,
             fontsize=size,
+            lineheight=lineheight,
             fill=item["color"],
             align=fitz.TEXT_ALIGN_LEFT,
-            **_insert_font_args(item),
+            **font_args,
         )
         scratch.close()
         return ret >= 0
 
+    font_args, text = _text_font_args(item, text)
     font_size = max(MIN_FONT_SIZE, int(round(item["size"])))
     preferred_min_size = MIN_FONT_SIZE if item["kind"] == "cell" else max(MIN_FONT_SIZE, int(font_size * 0.72))
 
@@ -275,9 +333,10 @@ def _insert_fitted_text(page, rect, text, item):
             rect,
             text,
             fontsize=size,
+            lineheight=lineheight,
             fill=item["color"],
             align=fitz.TEXT_ALIGN_LEFT,
-            **_insert_font_args(item),
+            **font_args,
         )
         if ret >= 0:
             return True
@@ -287,9 +346,10 @@ def _insert_fitted_text(page, rect, text, item):
             rect,
             text,
             fontsize=size,
+            lineheight=lineheight,
             fill=item["color"],
             align=fitz.TEXT_ALIGN_LEFT,
-            **_insert_font_args(item),
+            **font_args,
         )
         if ret >= 0:
             return True
@@ -311,9 +371,10 @@ def _insert_fitted_text(page, rect, text, item):
             rect,
             best,
             fontsize=MIN_FONT_SIZE,
+            lineheight=lineheight,
             fill=item["color"],
             align=fitz.TEXT_ALIGN_LEFT,
-            **_insert_font_args(item),
+            **font_args,
         )
     return False
 
