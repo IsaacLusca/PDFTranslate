@@ -2,7 +2,7 @@
 
 Aplicação web para tradução automática de documentos PDF e imagens, utilizando OCR com redes neurais e modelos de tradução automática.
 
-**🔗 Live:** https://pdftranslate.onrender.com
+**🔗 Live:** https://pdftranslate-udkp.onrender.com
 
 ## Funcionalidades
 
@@ -39,7 +39,7 @@ Acesse em: `http://localhost:5000`
 
 ## Deploy
 
-O projeto está hospedado no Render: https://pdftranslate.onrender.com
+O projeto está hospedado no Render: https://pdftranslate-udkp.onrender.com
 
 > ⚠️ A função de OCR de imagem (Tesseract) não funciona no Render por limitações do ambiente gratuito. As funções de PDF para texto e PDF para PDF funcionam normalmente.
 
