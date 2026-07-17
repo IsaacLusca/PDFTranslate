@@ -1,3 +1,4 @@
+import math
 import fitz
 from deep_translator import GoogleTranslator
 from langdetect import detect
@@ -156,7 +157,7 @@ def translate_pdf_preserving_layout(path, target_lang):
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
         for bdata, tr in zip(block_data, translated):
-            r = bdata["rect"]
+            r = fitz.Rect(bdata["rect"])
             r.x0 = max(r.x0, page.rect.x0 + 2)
             r.x1 = min(r.x1, page.rect.x1 - 2)
             if r.x0 >= r.x1:
@@ -164,28 +165,18 @@ def translate_pdf_preserving_layout(path, target_lang):
             r.y0 = max(r.y0, page.rect.y0 + 2)
             r.y1 = min(r.y1, page.rect.y1 - 2)
 
-            ret = page.insert_textbox(
-                r, tr,
-                fontsize=bdata["size"],
-                fontname=bdata["fontname"],
-                fill=bdata["color"],
-                align=fitz.TEXT_ALIGN_LEFT,
-            )
-
-            if ret < 0:
-                r.y1 = page.rect.y1 - 2
-                fs = bdata["size"]
-                while fs > 4:
-                    ret = page.insert_textbox(
-                        r, tr,
-                        fontsize=fs,
-                        fontname=bdata["fontname"],
-                        fill=bdata["color"],
-                        align=fitz.TEXT_ALIGN_LEFT,
-                    )
-                    if ret >= 0:
-                        break
-                    fs -= 1
+            fs = int(bdata["size"])
+            while fs >= 4:
+                ret = page.insert_textbox(
+                    r, tr,
+                    fontsize=fs,
+                    fontname=bdata["fontname"],
+                    fill=bdata["color"],
+                    align=fitz.TEXT_ALIGN_LEFT,
+                )
+                if ret >= 0:
+                    break
+                fs -= 1
     return dst
 
 def generate_translated_pdf(translated_doc, output_path):
