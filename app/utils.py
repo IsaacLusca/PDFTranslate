@@ -106,7 +106,7 @@ def translate_pdf_preserving_layout(path, target_lang):
             r = fitz.Rect(span["bbox"])
             page.add_redact_annot(r, text="")
 
-        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_GRAPHICS_NONE)
+        page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
         for span, tr in zip(spans, translated):
             r = fitz.Rect(span["bbox"])
