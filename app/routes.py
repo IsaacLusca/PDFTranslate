@@ -1,5 +1,7 @@
 from flask import render_template, request, flash, Blueprint, send_file
 import os
+import tempfile
+import io
 from langdetect import detect
 from deep_translator import GoogleTranslator
 
@@ -8,8 +10,7 @@ from app.utils import translate_image_text, extract_text_from_image, translate_p
 
 main = Blueprint('main', __name__)
 
-UPLOAD_FOLDER = os.path.join(os.getcwd(), 'temp')
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+TEMP_DIR = tempfile.mkdtemp(prefix='pdftranslate_')
 
 @main.route('/')
 @main.route('/index')
@@ -19,7 +20,7 @@ def index():
 @main.route('/translate', methods=['POST'])
 def translate():
     file = request.files['file']
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    filepath = os.path.join(TEMP_DIR, file.filename)
     file.save(filepath)
     try:
         pages = extract_text_from_pdf(filepath)
@@ -50,32 +51,36 @@ def translate():
 @main.route('/translate_to_pdf', methods=['POST'])
 def translate_to_pdf():
     file = request.files['file']
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    filepath = os.path.join(TEMP_DIR, file.filename)
     file.save(filepath)
+    output_path = None
     try:
         target_lang = request.form['language']
         translated_doc = translate_pdf_preserving_layout(filepath, target_lang)
 
         filename = os.path.splitext(file.filename)[0]
         output_filename = f"{filename}_translated_{target_lang}.pdf"
-        output_path = os.path.join(UPLOAD_FOLDER, output_filename)
-
+        output_path = os.path.join(TEMP_DIR, output_filename)
         translated_doc.save(output_path)
         translated_doc.close()
 
+        with open(output_path, 'rb') as f:
+            data = io.BytesIO(f.read())
+
         flash('PDF traduzido com sucesso!', 'success')
-        return send_file(output_path, as_attachment=True)
+        return send_file(data, as_attachment=True, download_name=output_filename, mimetype='application/pdf')
     except Exception as e:
         flash(f'Erro ao processar PDF: {str(e)}', 'error')
         return render_template('index.html')
     finally:
-        if os.path.exists(filepath):
-            os.remove(filepath)
+        for p in [filepath, output_path]:
+            if p and os.path.exists(p):
+                os.remove(p)
 
 @main.route('/translate_image', methods=['POST'])
 def translate_image():
     file = request.files['file']
-    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    filepath = os.path.join(TEMP_DIR, file.filename)
     file.save(filepath)
     try:
         target_lang = request.form['language']
