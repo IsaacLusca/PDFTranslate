@@ -14,6 +14,8 @@ MIN_FONT_SIZE = 4
 FONT_DIR = os.path.join(os.path.dirname(__file__), "static", "fonts")
 LIST_MARKER_RE = re.compile(r"^(\(?[A-Za-z0-9]{1,3}(?:[.)])|[-*])$")
 INLINE_LIST_RE = re.compile(r"^(\(?[A-Za-z0-9]{1,3}(?:[.)])|[-*])\s+(.+)$")
+TABLE_LINE_TOLERANCE = 2.5
+TABLE_CELL_PADDING = 2
 
 FONT_CANDIDATES = {
     "regular": [
@@ -255,6 +257,244 @@ def _split_inline_list_text(text):
     return match.group(1), match.group(2)
 
 
+def _cluster_positions(values, tolerance=TABLE_LINE_TOLERANCE):
+    clusters = []
+    for value in sorted(values):
+        for cluster in clusters:
+            if abs(value - cluster[-1]) <= tolerance:
+                cluster.append(value)
+                break
+        else:
+            clusters.append([value])
+    return [sum(cluster) / len(cluster) for cluster in clusters]
+
+
+def _line_covers_interval(lines, coord, start, end, orientation):
+    segments = [
+        (line_start, line_end)
+        for line_coord, line_start, line_end in lines
+        if abs(line_coord - coord) <= TABLE_LINE_TOLERANCE
+    ]
+    if not segments:
+        return False
+
+    cursor = start
+    for seg_start, seg_end in sorted(segments):
+        if seg_end < cursor - TABLE_LINE_TOLERANCE:
+            continue
+        if seg_start > cursor + TABLE_LINE_TOLERANCE:
+            return False
+        cursor = max(cursor, seg_end)
+        if cursor >= end - TABLE_LINE_TOLERANCE:
+            return True
+    return False
+
+
+def _detect_table_cells(page):
+    horizontal = []
+    vertical = []
+
+    for drawing in page.get_drawings():
+        for item in drawing.get("items", []):
+            if item[0] != "re":
+                continue
+            rect = fitz.Rect(item[1])
+            if rect.width > 20 and rect.height <= 3:
+                horizontal.append(((rect.y0 + rect.y1) / 2, rect.x0, rect.x1))
+            elif rect.height > 10 and rect.width <= 3:
+                vertical.append(((rect.x0 + rect.x1) / 2, rect.y0, rect.y1))
+
+    if not horizontal or not vertical:
+        return []
+
+    xs = _cluster_positions([line[0] for line in vertical])
+    candidate_intervals = set()
+    for x0, x1 in zip(xs, xs[1:]):
+        if x1 - x0 >= 8:
+            candidate_intervals.add((round(x0, 1), round(x1, 1)))
+
+    for _, start, end in horizontal:
+        if end - start < 8:
+            continue
+        left = min(xs, key=lambda x: abs(x - start))
+        right = min(xs, key=lambda x: abs(x - end))
+        if abs(left - start) <= TABLE_LINE_TOLERANCE and abs(right - end) <= TABLE_LINE_TOLERANCE and right - left >= 8:
+            candidate_intervals.add((round(left, 1), round(right, 1)))
+
+    cells = []
+    seen = set()
+
+    for x0, x1 in sorted(candidate_intervals):
+        ys = [
+            y
+            for y, start, end in horizontal
+            if start <= x0 + TABLE_LINE_TOLERANCE and end >= x1 - TABLE_LINE_TOLERANCE
+        ]
+        ys = _cluster_positions(ys)
+        if len(ys) < 2:
+            continue
+
+        for y0, y1 in zip(ys, ys[1:]):
+            if y1 - y0 < 6:
+                continue
+            if not _line_covers_interval(vertical, x0, y0, y1, "v"):
+                continue
+            if not _line_covers_interval(vertical, x1, y0, y1, "v"):
+                continue
+            has_internal_vertical = any(
+                x0 + TABLE_LINE_TOLERANCE < x < x1 - TABLE_LINE_TOLERANCE
+                and _line_covers_interval(vertical, x, y0, y1, "v")
+                for x in xs
+            )
+            if has_internal_vertical:
+                continue
+            key = tuple(round(v, 1) for v in (x0, y0, x1, y1))
+            if key in seen:
+                continue
+            seen.add(key)
+            cells.append(fitz.Rect(x0, y0, x1, y1))
+
+    return cells
+
+
+def _span_center(span):
+    rect = fitz.Rect(span["bbox"])
+    return ((rect.x0 + rect.x1) / 2, (rect.y0 + rect.y1) / 2)
+
+
+def _spans_in_rect(spans, rect):
+    found = []
+    for span in spans:
+        x, y = _span_center(span)
+        if rect.x0 - 0.5 <= x <= rect.x1 + 0.5 and rect.y0 - 0.5 <= y <= rect.y1 + 0.5:
+            found.append(span)
+    return found
+
+
+def _padded_rect(rect, padding=TABLE_CELL_PADDING):
+    padded = fitz.Rect(rect)
+    x_padding = min(padding, max(0, rect.width * 0.1))
+    y_padding = min(padding, max(0, (rect.height - 10) / 2))
+    padded.x0 += x_padding
+    padded.x1 -= x_padding
+    padded.y0 += y_padding
+    padded.y1 -= y_padding
+    if padded.x0 >= padded.x1:
+        padded = fitz.Rect(rect)
+    if padded.y0 >= padded.y1:
+        padded = fitz.Rect(rect)
+    return padded
+
+
+def _add_table_cell_text_item(items, text, rect, span, kind="table_cell", translate=None):
+    if not text.strip():
+        return
+    item_rect = fitz.Rect(rect) if "marker" in kind else _padded_rect(rect)
+    min_height = (span.get("size", 10) or 10) * 1.25
+    if item_rect.height < min_height:
+        item_rect.y1 = item_rect.y0 + min_height
+    items.append(_make_layout_item(
+        text.strip(),
+        item_rect,
+        span,
+        kind=kind,
+        translate=translate,
+        fixed_rect=True,
+    ))
+
+
+def _flush_table_list_item(items, current):
+    if not current:
+        return
+    text = "\n".join(current["lines"]).strip()
+    if not text:
+        return
+    _add_table_cell_text_item(
+        items,
+        text,
+        current["rect"],
+        current["span"],
+        kind="table_list_item",
+        translate=True,
+    )
+
+
+def _add_items_from_table_cell(items, cell_rect, spans):
+    rows = _group_spans_by_visual_row(spans)
+    if not rows:
+        return []
+
+    used_spans = []
+    normal_lines = []
+    normal_rect = None
+    normal_span = None
+    current_list = None
+
+    for row in rows:
+        row_spans = row["spans"]
+        used_spans.extend(row_spans)
+        first = row_spans[0]
+        first_text = _normalized_marker(first.get("text", ""))
+        row_rect = _row_rect(row)
+
+        if len(row_spans) >= 2 and _is_list_marker(first_text):
+            _flush_table_list_item(items, current_list)
+            current_list = None
+            marker_rect = fitz.Rect(first["bbox"])
+            _add_table_cell_text_item(items, first_text, marker_rect, first, kind="table_list_marker", translate=False)
+            content_spans = row_spans[1:]
+            content_text = _row_text_with_gaps({"spans": content_spans})
+            content_rect = _row_rect({"spans": content_spans})
+            content_rect.x1 = cell_rect.x1
+            current_list = {
+                "lines": [content_text] if content_text else [],
+                "rect": content_rect,
+                "span": content_spans[0],
+            }
+            continue
+
+        split = _split_inline_list_text(first.get("text", ""))
+        if split and len(row_spans) == 1:
+            _flush_table_list_item(items, current_list)
+            current_list = None
+            marker, content = split
+            first_rect = fitz.Rect(first["bbox"])
+            marker_width = max(first.get("size", 10) or 10, first_rect.width * len(marker) / max(1, len(first.get("text", ""))))
+            marker_rect = fitz.Rect(first_rect.x0, first_rect.y0, min(first_rect.x1, first_rect.x0 + marker_width), first_rect.y1)
+            content_rect = fitz.Rect(marker_rect.x1 + 2, first_rect.y0, cell_rect.x1, first_rect.y1)
+            _add_table_cell_text_item(items, marker, marker_rect, first, kind="table_list_marker", translate=False)
+            current_list = {"lines": [content], "rect": content_rect, "span": first}
+            continue
+
+        line_text = _row_text_with_gaps(row)
+        if current_list and row_rect.x0 >= current_list["rect"].x0 - max(4, first.get("size", 10) or 10):
+            current_list["lines"].append(line_text)
+            current_list["rect"] = current_list["rect"] | row_rect
+            current_list["rect"].x1 = cell_rect.x1
+            continue
+
+        _flush_table_list_item(items, current_list)
+        current_list = None
+        if line_text:
+            normal_lines.append(line_text)
+            normal_rect = row_rect if normal_rect is None else normal_rect | row_rect
+            if normal_span is None:
+                normal_span = first
+
+    _flush_table_list_item(items, current_list)
+
+    if normal_lines and normal_rect is not None:
+        _add_table_cell_text_item(
+            items,
+            "\n".join(normal_lines),
+            cell_rect,
+            normal_span,
+            kind="table_cell",
+        )
+
+    return used_spans
+
+
 def _group_spans_by_visual_row(spans):
     rows = []
     for span in sorted(spans, key=lambda s: (fitz.Rect(s["bbox"]).y0, fitz.Rect(s["bbox"]).x0)):
@@ -289,7 +529,7 @@ def _row_has_column_gaps(row):
     return False
 
 
-def _make_layout_item(text, rect, span, kind="block", translate=None):
+def _make_layout_item(text, rect, span, kind="block", translate=None, fixed_rect=False):
     return {
         "text": text,
         "rect": fitz.Rect(rect),
@@ -300,6 +540,7 @@ def _make_layout_item(text, rect, span, kind="block", translate=None):
         "size": span.get("size", 10) or 10,
         "kind": kind,
         "translate": _has_letters(text) if translate is None else translate,
+        "fixed_rect": fixed_rect,
     }
 
 
@@ -337,9 +578,10 @@ def _add_list_items_from_row(items, row):
     return False
 
 
-def _extract_layout_items(text_blocks):
+def _extract_layout_items(text_blocks, table_cells=None):
     items = []
     all_spans = []
+    table_span_ids = set()
 
     for block in text_blocks:
         spans = [
@@ -352,6 +594,29 @@ def _extract_layout_items(text_blocks):
             continue
 
         all_spans.extend(spans)
+
+    if table_cells:
+        for cell in table_cells:
+            cell_spans = _spans_in_rect(all_spans, cell)
+            if not cell_spans:
+                continue
+            used_spans = _add_items_from_table_cell(items, cell, cell_spans)
+            table_span_ids.update(id(span) for span in used_spans)
+
+    for block in text_blocks:
+        spans = [
+            span
+            for line in block["lines"]
+            for span in line["spans"]
+            if (
+                span.get("text", "").strip()
+                and (span.get("size", 0) or 0) > 0
+                and id(span) not in table_span_ids
+            )
+        ]
+        if not spans:
+            continue
+
         rows = _group_spans_by_visual_row(spans)
 
         list_rows = []
@@ -401,6 +666,13 @@ def _expanded_rect(item, page_rect, obstacles):
     rect.x1 = min(rect.x1, page_rect.x1 - PAGE_MARGIN)
     rect.y0 = max(rect.y0, page_rect.y0 + PAGE_MARGIN)
     rect.y1 = min(rect.y1, page_rect.y1 - PAGE_MARGIN)
+
+    if item.get("fixed_rect"):
+        if rect.width < 4:
+            rect.x1 = min(page_rect.x1 - PAGE_MARGIN, rect.x0 + 4)
+        if rect.height < 4:
+            rect.y1 = min(page_rect.y1 - PAGE_MARGIN, rect.y0 + 4)
+        return rect
 
     max_x1 = page_rect.x1 - PAGE_MARGIN
     max_y1 = page_rect.y1 - PAGE_MARGIN
@@ -605,7 +877,8 @@ def translate_pdf_preserving_layout(path, target_lang):
         if not text_blocks:
             continue
 
-        layout_items, all_spans = _extract_layout_items(text_blocks)
+        table_cells = _detect_table_cells(page)
+        layout_items, all_spans = _extract_layout_items(text_blocks, table_cells=table_cells)
         if not layout_items:
             continue
 
