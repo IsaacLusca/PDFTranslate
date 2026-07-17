@@ -6,7 +6,7 @@ from langdetect import detect
 from deep_translator import GoogleTranslator
 
 from app.utils import extract_text_from_pdf, translate_text_list, extract_and_translate_pdf, generate_pdf_from_text
-from app.utils import translate_image_text, extract_text_from_image, translate_pdf_preserving_layout
+from app.utils import translate_image_text, extract_text_from_image, translate_pdf_preserving_layout, translate_pdf_with_overlay_mask
 
 main = Blueprint('main', __name__)
 
@@ -62,10 +62,14 @@ def translate_to_pdf():
     output_path = None
     try:
         target_lang = request.form['language']
-        translated_doc = translate_pdf_preserving_layout(filepath, target_lang)
+        pdf_mode = request.form.get('pdf_mode', 'advanced')
+        if pdf_mode == 'mask':
+            translated_doc = translate_pdf_with_overlay_mask(filepath, target_lang)
+        else:
+            translated_doc = translate_pdf_preserving_layout(filepath, target_lang)
 
         filename = os.path.splitext(file.filename)[0]
-        output_filename = f"{filename}_translated_{target_lang}.pdf"
+        output_filename = f"{filename}_translated_{target_lang}_{pdf_mode}.pdf"
         output_path = os.path.join(TEMP_DIR, output_filename)
         translated_doc.save(output_path, garbage=4, deflate=True)
         translated_doc.close()

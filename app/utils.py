@@ -16,6 +16,7 @@ LIST_MARKER_RE = re.compile(r"^(\(?[A-Za-z0-9]{1,3}(?:[.)])|[-*])$")
 INLINE_LIST_RE = re.compile(r"^(\(?[A-Za-z0-9]{1,3}(?:[.)])|[-*])\s+(.+)$")
 TABLE_LINE_TOLERANCE = 2.5
 TABLE_CELL_PADDING = 2
+HEADING_MIN_FONT_RATIO = 0.9
 
 FONT_CANDIDATES = {
     "regular": [
@@ -92,6 +93,12 @@ def _span_fontfile(span):
         if os.path.exists(path):
             return path
     return None
+
+
+def _span_is_bold(span):
+    flags = span.get("flags", 0)
+    font = span.get("font", "").lower()
+    return bool(flags & 16) or any(x in font for x in ("bold", "heavy", "black", "demi"))
 
 
 def _insert_font_args(item):
@@ -175,6 +182,16 @@ def _clean_text(text):
 
 def _has_letters(text):
     return any(ch.isalpha() for ch in text)
+
+
+def _looks_like_heading(text, rows, span):
+    clean = _clean_text(text)
+    if not clean or len(clean) > 90 or len(rows) > 2:
+        return False
+    size = span.get("size", 0) or 0
+    if size >= 12:
+        return True
+    return _span_is_bold(span) and len(clean) <= 70
 
 
 def _row_rect(row):
@@ -654,7 +671,8 @@ def _extract_layout_items(text_blocks, table_cells=None):
 
         full_text = "\n".join(lines_text).strip()
         if full_text and block_rect is not None:
-            items.append(_make_layout_item(full_text, block_rect, first_span, kind="block"))
+            kind = "heading" if _looks_like_heading(full_text, normal_rows, first_span) else "block"
+            items.append(_make_layout_item(full_text, block_rect, first_span, kind=kind))
 
     return items, all_spans
 
@@ -694,6 +712,18 @@ def _expanded_rect(item, page_rect, obstacles):
     elif item["kind"] == "cell":
         rect.x1 = max(rect.x1, max_x1)
         rect.y1 = max(rect.y1, min(max_y1, original.y1 + max(item["size"] * 1.8, original.height)))
+    elif item["kind"] == "heading":
+        extra_height = max(item["size"] * 1.8, original.height * 1.4)
+        original_center = (original.x0 + original.x1) / 2
+        page_center = (page_rect.x0 + page_rect.x1) / 2
+        if abs(original_center - page_center) <= page_rect.width * 0.08:
+            rect.x0 = page_rect.x0 + PAGE_MARGIN
+            rect.x1 = page_rect.x1 - PAGE_MARGIN
+            item["align"] = fitz.TEXT_ALIGN_CENTER
+        else:
+            rect.x1 = max(rect.x1, max_x1)
+            item["align"] = fitz.TEXT_ALIGN_LEFT
+        rect.y1 = max(rect.y1, min(max_y1, original.y1 + extra_height))
     else:
         column_x1 = original.x1
         for other in obstacles:
@@ -718,6 +748,7 @@ def _insert_fitted_text(page, rect, text, item):
         return True
 
     lineheight = 1.0 if item["kind"] == "block" else 0.95
+    align = item.get("align", fitz.TEXT_ALIGN_LEFT)
 
     def _fits(candidate, size):
         font_args, candidate = _text_font_args(item, candidate)
@@ -729,7 +760,7 @@ def _insert_fitted_text(page, rect, text, item):
             fontsize=size,
             lineheight=lineheight,
             fill=item["color"],
-            align=fitz.TEXT_ALIGN_LEFT,
+            align=align,
             **font_args,
         )
         scratch.close()
@@ -737,7 +768,12 @@ def _insert_fitted_text(page, rect, text, item):
 
     font_args, text = _text_font_args(item, text)
     font_size = max(MIN_FONT_SIZE, int(round(item["size"])))
-    preferred_min_size = MIN_FONT_SIZE if item["kind"] == "cell" else max(MIN_FONT_SIZE, int(font_size * 0.72))
+    if item["kind"] == "cell":
+        preferred_min_size = MIN_FONT_SIZE
+    elif item["kind"] == "heading":
+        preferred_min_size = max(MIN_FONT_SIZE, int(math.floor(font_size * HEADING_MIN_FONT_RATIO)))
+    else:
+        preferred_min_size = max(MIN_FONT_SIZE, int(font_size * 0.72))
 
     for size in range(font_size, preferred_min_size - 1, -1):
         ret = page.insert_textbox(
@@ -746,7 +782,7 @@ def _insert_fitted_text(page, rect, text, item):
             fontsize=size,
             lineheight=lineheight,
             fill=item["color"],
-            align=fitz.TEXT_ALIGN_LEFT,
+            align=align,
             **font_args,
         )
         if ret >= 0:
@@ -759,7 +795,7 @@ def _insert_fitted_text(page, rect, text, item):
             fontsize=size,
             lineheight=lineheight,
             fill=item["color"],
-            align=fitz.TEXT_ALIGN_LEFT,
+            align=align,
             **font_args,
         )
         if ret >= 0:
@@ -784,7 +820,7 @@ def _insert_fitted_text(page, rect, text, item):
             fontsize=MIN_FONT_SIZE,
             lineheight=lineheight,
             fill=item["color"],
-            align=fitz.TEXT_ALIGN_LEFT,
+            align=align,
             **font_args,
         )
     return False
@@ -857,55 +893,118 @@ def translate_image_text(image_path, target_lang):
     return translated_text
     
 
-# def extract_text_blocks_from_pdf(path):
-#     """extrai blocos com coordenadas"""
-#     blocks_pages = []
-#     with fitz.open(path) as doc:
-#         for page in doc:
-#             blocks = page.get_text("blocks")
-#             blocks_pages.append(blocks)
-#     return blocks_pages
+def _prepare_page_translation(page, target_lang):
+    text_dict = page.get_text("dict")
+    text_blocks = [b for b in text_dict["blocks"] if "lines" in b]
+    if not text_blocks:
+        return [], [], {}, []
+
+    table_cells = _detect_table_cells(page)
+    layout_items, all_spans = _extract_layout_items(text_blocks, table_cells=table_cells)
+    if not layout_items:
+        return [], all_spans, {}, []
+
+    translatable_items = [item for item in layout_items if item.get("translate", _has_letters(item["text"]))]
+    originals = [item["text"] for item in translatable_items]
+    translated = translate_text_list(originals, target_lang, max_workers=6)
+    translated_by_id = {
+        id(item): translated_text
+        for item, translated_text in zip(translatable_items, translated)
+    }
+
+    image_rects = [
+        fitz.Rect(block["bbox"])
+        for block in text_dict["blocks"]
+        if "lines" not in block and "bbox" in block
+    ]
+    obstacles = [fitz.Rect(item["rect"]) for item in layout_items] + image_rects
+    return layout_items, all_spans, translated_by_id, obstacles
+
+
+def _insert_translated_layout(page, layout_items, translated_by_id, obstacles):
+    for item in layout_items:
+        text = translated_by_id.get(id(item), item["text"])
+        rect = _expanded_rect(item, page.rect, obstacles)
+        _insert_fitted_text(page, rect, text, item)
+
+
+def _span_background_color(page, span):
+    span_rect = fitz.Rect(span["bbox"])
+    center_x, center_y = _span_center(span)
+    best = None
+
+    for drawing in page.get_drawings():
+        fill = drawing.get("fill")
+        if fill is None:
+            continue
+        for item in drawing.get("items", []):
+            if item[0] != "re":
+                continue
+            rect = fitz.Rect(item[1])
+            if rect.x0 <= center_x <= rect.x1 and rect.y0 <= center_y <= rect.y1:
+                area = rect.width * rect.height
+                if best is None or area < best[0]:
+                    best = (area, fill)
+
+    return best[1] if best else (1, 1, 1)
+
+
+def _draw_text_mask(page, spans, source_page=None):
+    if not spans:
+        return
+
+    grouped_rects = {}
+    for span in spans:
+        rect = fitz.Rect(span["bbox"])
+        rect.x0 -= 0.4
+        rect.x1 += 0.4
+        rect.y0 -= 0.4
+        rect.y1 += 0.4
+        fill = _span_background_color(source_page, span) if source_page else (1, 1, 1)
+        key = tuple(round(c, 4) for c in fill)
+        grouped_rects.setdefault(key, []).append(rect)
+
+    for fill, rects in grouped_rects.items():
+        shape = page.new_shape()
+        for rect in rects:
+            shape.draw_rect(rect)
+        shape.finish(color=None, fill=fill)
+        shape.commit(overlay=True)
+
 
 def translate_pdf_preserving_layout(path, target_lang):
     doc = fitz.open(path)
 
-    for pno in range(len(doc)):
-        page = doc[pno]
-        text_dict = page.get_text("dict")
-
-        text_blocks = [b for b in text_dict["blocks"] if "lines" in b]
-        if not text_blocks:
-            continue
-
-        table_cells = _detect_table_cells(page)
-        layout_items, all_spans = _extract_layout_items(text_blocks, table_cells=table_cells)
+    for page in doc:
+        layout_items, all_spans, translated_by_id, obstacles = _prepare_page_translation(page, target_lang)
         if not layout_items:
             continue
-
-        translatable_items = [item for item in layout_items if item.get("translate", _has_letters(item["text"]))]
-        originals = [item["text"] for item in translatable_items]
-        translated = translate_text_list(originals, target_lang, max_workers=6)
-        translated_by_id = {
-            id(item): translated_text
-            for item, translated_text in zip(translatable_items, translated)
-        }
-
-        image_rects = [
-            fitz.Rect(block["bbox"])
-            for block in text_dict["blocks"]
-            if "lines" not in block and "bbox" in block
-        ]
-        obstacles = [fitz.Rect(item["rect"]) for item in layout_items] + image_rects
 
         for span in all_spans:
             page.add_redact_annot(fitz.Rect(span["bbox"]), text="")
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
-        for item in layout_items:
-            text = translated_by_id.get(id(item), item["text"])
-            rect = _expanded_rect(item, page.rect, obstacles)
-            _insert_fitted_text(page, rect, text, item)
+        _insert_translated_layout(page, layout_items, translated_by_id, obstacles)
     return doc
+
+
+def translate_pdf_with_overlay_mask(path, target_lang):
+    src = fitz.open(path)
+    translated_doc = fitz.open()
+
+    for page_number, source_page in enumerate(src):
+        target_page = translated_doc.new_page(width=source_page.rect.width, height=source_page.rect.height)
+        target_page.show_pdf_page(source_page.rect, src, page_number)
+
+        layout_items, all_spans, translated_by_id, obstacles = _prepare_page_translation(source_page, target_lang)
+        if not layout_items:
+            continue
+
+        _draw_text_mask(target_page, all_spans, source_page=source_page)
+        _insert_translated_layout(target_page, layout_items, translated_by_id, obstacles)
+
+    src.close()
+    return translated_doc
 
 def generate_translated_pdf(translated_doc, output_path):
     """salvar documento traduzido"""
