@@ -82,32 +82,6 @@ def translate_image_text(image_path, target_lang):
 #             blocks_pages.append(blocks)
 #     return blocks_pages
 
-def _span_fontname(span):
-    flags = span.get("flags", 0)
-    font = span.get("font", "").lower()
-    bold = bool(flags & 16) or any(x in font for x in ("bold", "heavy", "black", "demi"))
-    italic = bool(flags & 2) or any(x in font for x in ("italic", "oblique"))
-    mono = bool(flags & 8) or any(x in font for x in ("courier", "mono", "typewriter"))
-
-    if mono:
-        if bold and italic: return "Courier-BoldOblique"
-        if bold: return "Courier-Bold"
-        if italic: return "Courier-Oblique"
-        return "Courier"
-
-    if bold and italic: return "Helvetica-BoldOblique"
-    if bold: return "Helvetica-Bold"
-    if italic: return "Helvetica-Oblique"
-    return "Helvetica"
-
-
-def _span_color(span):
-    c = span.get("color", 0)
-    if c is None:
-        return (0, 0, 0)
-    return ((c >> 16) & 0xFF) / 255.0, ((c >> 8) & 0xFF) / 255.0, (c & 0xFF) / 255.0
-
-
 def translate_pdf_preserving_layout(path, target_lang):
     src = fitz.open(path)
     dst = fitz.open()
@@ -159,8 +133,7 @@ def translate_pdf_preserving_layout(path, target_lang):
             page.insert_textbox(
                 r, tr,
                 fontsize=span["size"],
-                fontname=_span_fontname(span),
-                fill=_span_color(span),
+                fontname="helv",
                 align=fitz.TEXT_ALIGN_LEFT,
             )
     return dst
