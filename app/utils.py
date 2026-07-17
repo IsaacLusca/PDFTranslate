@@ -4,6 +4,7 @@ from deep_translator import GoogleTranslator
 from langdetect import detect
 from PIL import Image
 import os
+import re
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -11,6 +12,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 PAGE_MARGIN = 2
 MIN_FONT_SIZE = 4
 FONT_DIR = os.path.join(os.path.dirname(__file__), "static", "fonts")
+LIST_MARKER_RE = re.compile(r"^(\(?[A-Za-z0-9]{1,3}(?:[.)])|[-*])$")
+INLINE_LIST_RE = re.compile(r"^(\(?[A-Za-z0-9]{1,3}(?:[.)])|[-*])\s+(.+)$")
 
 FONT_CANDIDATES = {
     "regular": [
@@ -172,6 +175,86 @@ def _has_letters(text):
     return any(ch.isalpha() for ch in text)
 
 
+def _row_rect(row):
+    rect = None
+    for span in row["spans"]:
+        span_rect = fitz.Rect(span["bbox"])
+        rect = span_rect if rect is None else rect | span_rect
+    return rect
+
+
+def _average_char_width(span):
+    text = span.get("text", "")
+    rect = fitz.Rect(span["bbox"])
+    visible_chars = max(1, len(text.strip()))
+    return max(1.0, rect.width / visible_chars)
+
+
+def _space_for_gap(gap, span):
+    if gap <= 0:
+        return ""
+    char_width = _average_char_width(span)
+    if gap < char_width * 0.25:
+        return ""
+    spaces = int(round(gap / char_width))
+    return " " * max(1, min(spaces, 8))
+
+
+def _separator_between_spans(previous_text, current_text, gap, previous_span):
+    previous_text = previous_text.rstrip()
+    current_text = current_text.lstrip()
+    if not previous_text or not current_text:
+        return ""
+
+    if current_text[0] in ".,:;!?%)]}":
+        return ""
+    if current_text[0] in "'\"" and previous_text[-1].isalnum():
+        return " "
+    if previous_text[-1] in "([{":
+        return ""
+    if previous_text[-1] in ".,:;!?":
+        return " "
+    if previous_text[-1].isalnum() and current_text[0].isalnum():
+        gap_space = _space_for_gap(gap, previous_span)
+        return gap_space or " "
+    return _space_for_gap(gap, previous_span)
+
+
+def _row_text_with_gaps(row):
+    parts = []
+    previous = None
+    previous_text = ""
+    for span in row["spans"]:
+        text = span.get("text", "")
+        if not text.strip():
+            continue
+        rect = fitz.Rect(span["bbox"])
+        if previous is not None:
+            gap = rect.x0 - fitz.Rect(previous["bbox"]).x1
+            parts.append(_separator_between_spans(previous_text, text, gap, previous))
+        cleaned = text.strip()
+        parts.append(cleaned)
+        previous = span
+        previous_text = cleaned
+    return "".join(parts).strip()
+
+
+def _normalized_marker(text):
+    return _base_font_text(text).strip()
+
+
+def _is_list_marker(text):
+    marker = _normalized_marker(text)
+    return marker in {"-", "*"} or bool(LIST_MARKER_RE.match(marker))
+
+
+def _split_inline_list_text(text):
+    match = INLINE_LIST_RE.match(_base_font_text(text).strip())
+    if not match:
+        return None
+    return match.group(1), match.group(2)
+
+
 def _group_spans_by_visual_row(spans):
     rows = []
     for span in sorted(spans, key=lambda s: (fitz.Rect(s["bbox"]).y0, fitz.Rect(s["bbox"]).x0)):
@@ -206,7 +289,7 @@ def _row_has_column_gaps(row):
     return False
 
 
-def _make_layout_item(text, rect, span, kind="block"):
+def _make_layout_item(text, rect, span, kind="block", translate=None):
     return {
         "text": text,
         "rect": fitz.Rect(rect),
@@ -216,7 +299,42 @@ def _make_layout_item(text, rect, span, kind="block"):
         "color": _span_color(span),
         "size": span.get("size", 10) or 10,
         "kind": kind,
+        "translate": _has_letters(text) if translate is None else translate,
     }
+
+
+def _add_list_items_from_row(items, row):
+    spans = row["spans"]
+    if not spans:
+        return False
+
+    first = spans[0]
+    first_text = _normalized_marker(first.get("text", ""))
+    first_rect = fitz.Rect(first["bbox"])
+
+    if len(spans) >= 2 and _is_list_marker(first_text):
+        content_spans = spans[1:]
+        content_rect = None
+        for span in content_spans:
+            span_rect = fitz.Rect(span["bbox"])
+            content_rect = span_rect if content_rect is None else content_rect | span_rect
+        content_text = _row_text_with_gaps({"spans": content_spans})
+        if content_text:
+            items.append(_make_layout_item(first_text, first_rect, first, kind="list_marker", translate=False))
+            items.append(_make_layout_item(content_text, content_rect, content_spans[0], kind="list_item", translate=True))
+            return True
+
+    split = _split_inline_list_text(first.get("text", ""))
+    if split and len(spans) == 1:
+        marker, content = split
+        marker_width = max(first.get("size", 10) or 10, first_rect.width * len(marker) / max(1, len(first.get("text", ""))))
+        marker_rect = fitz.Rect(first_rect.x0, first_rect.y0, min(first_rect.x1, first_rect.x0 + marker_width), first_rect.y1)
+        content_rect = fitz.Rect(marker_rect.x1 + 2, first_rect.y0, first_rect.x1, first_rect.y1)
+        items.append(_make_layout_item(marker, marker_rect, first, kind="list_marker", translate=False))
+        items.append(_make_layout_item(content, content_rect, first, kind="list_item", translate=True))
+        return True
+
+    return False
 
 
 def _extract_layout_items(text_blocks):
@@ -236,8 +354,21 @@ def _extract_layout_items(text_blocks):
         all_spans.extend(spans)
         rows = _group_spans_by_visual_row(spans)
 
-        if any(_row_has_column_gaps(row) for row in rows):
+        list_rows = []
+        normal_rows = []
+        for row in rows:
+            if _add_list_items_from_row(items, row):
+                list_rows.append(row)
+            else:
+                normal_rows.append(row)
+
+        if list_rows and not normal_rows:
+            continue
+
+        if any(_row_has_column_gaps(row) for row in normal_rows):
             for row in rows:
+                if row in list_rows:
+                    continue
                 for span in row["spans"]:
                     text = _clean_text(span["text"])
                     if text:
@@ -245,15 +376,20 @@ def _extract_layout_items(text_blocks):
             continue
 
         lines_text = []
-        for row in rows:
-            line_text = "".join(span["text"] for span in row["spans"])
-            line_text = _clean_text(line_text)
+        block_rect = None
+        first_span = None
+        for row in normal_rows:
+            line_text = _row_text_with_gaps(row)
             if line_text:
                 lines_text.append(line_text)
+                row_rect = _row_rect(row)
+                block_rect = row_rect if block_rect is None else block_rect | row_rect
+                if first_span is None:
+                    first_span = row["spans"][0]
 
         full_text = "\n".join(lines_text).strip()
-        if full_text:
-            items.append(_make_layout_item(full_text, block["bbox"], spans[0], kind="block"))
+        if full_text and block_rect is not None:
+            items.append(_make_layout_item(full_text, block_rect, first_span, kind="block"))
 
     return items, all_spans
 
@@ -280,7 +416,10 @@ def _expanded_rect(item, page_rect, obstacles):
         if other.y0 >= original.y1 and _rect_overlap(fitz.Rect(rect.x0, rect.y0, max_x1, rect.y1), other, "x") > 0:
             max_y1 = min(max_y1, other.y0 - 1)
 
-    if item["kind"] == "cell":
+    if item["kind"] == "list_marker":
+        rect.x1 = max(rect.x1, original.x1 + 2)
+        rect.y1 = max(rect.y1, original.y1 + 2)
+    elif item["kind"] == "cell":
         rect.x1 = max(rect.x1, max_x1)
         rect.y1 = max(rect.y1, min(max_y1, original.y1 + max(item["size"] * 1.8, original.height)))
     else:
@@ -470,7 +609,7 @@ def translate_pdf_preserving_layout(path, target_lang):
         if not layout_items:
             continue
 
-        translatable_items = [item for item in layout_items if _has_letters(item["text"])]
+        translatable_items = [item for item in layout_items if item.get("translate", _has_letters(item["text"]))]
         originals = [item["text"] for item in translatable_items]
         translated = translate_text_list(originals, target_lang, max_workers=6)
         translated_by_id = {
