@@ -109,12 +109,16 @@ def translate_pdf_preserving_layout(path, target_lang):
         page.apply_redactions()
 
         for span, tr in zip(spans, translated):
-            page.insert_text(
-                span["origin"],
+            r = fitz.Rect(span["bbox"])
+            r.x1 = min(r.x1, page.rect.x1)
+            r.x0 = max(r.x0, page.rect.x0)
+            page.insert_textbox(
+                r,
                 tr,
                 fontsize=span["size"],
                 fontname="helv",
                 fill=(0,0,0),
+                align=fitz.TEXT_ALIGN_LEFT,
             )
     return dst
 
