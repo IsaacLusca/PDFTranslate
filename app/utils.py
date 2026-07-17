@@ -16,6 +16,7 @@ LIST_MARKER_RE = re.compile(r"^(\(?[A-Za-z0-9]{1,3}(?:[.)])|[-*])$")
 INLINE_LIST_RE = re.compile(r"^(\(?[A-Za-z0-9]{1,3}(?:[.)])|[-*])\s+(.+)$")
 TABLE_LINE_TOLERANCE = 2.5
 TABLE_CELL_PADDING = 2
+HEADING_MIN_FONT_RATIO = 0.9
 
 FONT_CANDIDATES = {
     "regular": [
@@ -92,6 +93,12 @@ def _span_fontfile(span):
         if os.path.exists(path):
             return path
     return None
+
+
+def _span_is_bold(span):
+    flags = span.get("flags", 0)
+    font = span.get("font", "").lower()
+    return bool(flags & 16) or any(x in font for x in ("bold", "heavy", "black", "demi"))
 
 
 def _insert_font_args(item):
@@ -175,6 +182,16 @@ def _clean_text(text):
 
 def _has_letters(text):
     return any(ch.isalpha() for ch in text)
+
+
+def _looks_like_heading(text, rows, span):
+    clean = _clean_text(text)
+    if not clean or len(clean) > 90 or len(rows) > 2:
+        return False
+    size = span.get("size", 0) or 0
+    if size >= 12:
+        return True
+    return _span_is_bold(span) and len(clean) <= 70
 
 
 def _row_rect(row):
@@ -654,7 +671,8 @@ def _extract_layout_items(text_blocks, table_cells=None):
 
         full_text = "\n".join(lines_text).strip()
         if full_text and block_rect is not None:
-            items.append(_make_layout_item(full_text, block_rect, first_span, kind="block"))
+            kind = "heading" if _looks_like_heading(full_text, normal_rows, first_span) else "block"
+            items.append(_make_layout_item(full_text, block_rect, first_span, kind=kind))
 
     return items, all_spans
 
@@ -694,6 +712,10 @@ def _expanded_rect(item, page_rect, obstacles):
     elif item["kind"] == "cell":
         rect.x1 = max(rect.x1, max_x1)
         rect.y1 = max(rect.y1, min(max_y1, original.y1 + max(item["size"] * 1.8, original.height)))
+    elif item["kind"] == "heading":
+        extra_height = max(item["size"] * 1.8, original.height * 1.4)
+        rect.x1 = max(rect.x1, max_x1)
+        rect.y1 = max(rect.y1, min(max_y1, original.y1 + extra_height))
     else:
         column_x1 = original.x1
         for other in obstacles:
@@ -737,7 +759,12 @@ def _insert_fitted_text(page, rect, text, item):
 
     font_args, text = _text_font_args(item, text)
     font_size = max(MIN_FONT_SIZE, int(round(item["size"])))
-    preferred_min_size = MIN_FONT_SIZE if item["kind"] == "cell" else max(MIN_FONT_SIZE, int(font_size * 0.72))
+    if item["kind"] == "cell":
+        preferred_min_size = MIN_FONT_SIZE
+    elif item["kind"] == "heading":
+        preferred_min_size = max(MIN_FONT_SIZE, int(math.floor(font_size * HEADING_MIN_FONT_RATIO)))
+    else:
+        preferred_min_size = max(MIN_FONT_SIZE, int(font_size * 0.72))
 
     for size in range(font_size, preferred_min_size - 1, -1):
         ret = page.insert_textbox(
