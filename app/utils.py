@@ -117,30 +117,46 @@ def translate_pdf_preserving_layout(path, target_lang):
         page = dst[pno]
         text_dict = page.get_text("dict")
 
-        blocks = [b for b in text_dict["blocks"] if "lines" in b]
-
-        spans = [
-            span
-            for block in blocks
-            for line in block["lines"]
-            for span in line["spans"]
-            if span["text"].strip()
-        ]
-
-        if not spans:
+        text_blocks = [b for b in text_dict["blocks"] if "lines" in b]
+        if not text_blocks:
             continue
 
-        originals = [span["text"] for span in spans]
+        block_data = []
+        all_spans = []
+        for block in text_blocks:
+            lines_text = []
+            for line in block["lines"]:
+                line_text = ""
+                for span in line["spans"]:
+                    line_text += span["text"]
+                    all_spans.append(span)
+                lines_text.append(line_text.rstrip())
+
+            full_text = "\n".join(lines_text).strip()
+            if not full_text:
+                continue
+
+            first = block["lines"][0]["spans"][0]
+            block_data.append({
+                "text": full_text,
+                "rect": fitz.Rect(block["bbox"]),
+                "fontname": _span_fontname(first),
+                "color": _span_color(first),
+                "size": first["size"],
+            })
+
+        if not block_data:
+            continue
+
+        originals = [b["text"] for b in block_data]
         translated = translate_text_list(originals, target_lang, max_workers=10)
 
-        for span in spans:
-            r = fitz.Rect(span["bbox"])
-            page.add_redact_annot(r, text="")
-
+        for span in all_spans:
+            page.add_redact_annot(fitz.Rect(span["bbox"]), text="")
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
-        for span, tr in zip(spans, translated):
-            r = fitz.Rect(span["bbox"])
+        for bdata, tr in zip(block_data, translated):
+            r = bdata["rect"]
             r.x0 = max(r.x0, page.rect.x0 + 2)
             r.x1 = min(r.x1, page.rect.x1 - 2)
             if r.x0 >= r.x1:
@@ -150,21 +166,21 @@ def translate_pdf_preserving_layout(path, target_lang):
 
             ret = page.insert_textbox(
                 r, tr,
-                fontsize=span["size"],
-                fontname=_span_fontname(span),
-                fill=_span_color(span),
+                fontsize=bdata["size"],
+                fontname=bdata["fontname"],
+                fill=bdata["color"],
                 align=fitz.TEXT_ALIGN_LEFT,
             )
 
             if ret < 0:
                 r.y1 = page.rect.y1 - 2
-                fs = span["size"]
+                fs = bdata["size"]
                 while fs > 4:
                     ret = page.insert_textbox(
                         r, tr,
                         fontsize=fs,
-                        fontname=_span_fontname(span),
-                        fill=_span_color(span),
+                        fontname=bdata["fontname"],
+                        fill=bdata["color"],
                         align=fitz.TEXT_ALIGN_LEFT,
                     )
                     if ret >= 0:
