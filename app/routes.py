@@ -21,47 +21,63 @@ def translate():
     file = request.files['file']
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
+    try:
+        pages = extract_text_from_pdf(filepath)
+        if not pages or not any(p.strip() for p in pages):
+            flash('Nenhum texto encontrado no PDF.', 'error')
+            return render_template('index.html')
 
-    pages = extract_text_from_pdf(filepath)
-    target_lang = request.form['language']
-    detected_lang = detect(pages[0]) if pages else 'auto'
+        target_lang = request.form['language']
+        detected_lang = detect(pages[0]) if pages[0].strip() else 'auto'
 
-    translated_pages = [
-        GoogleTranslator(source=detected_lang, target=target_lang).translate(p)
-        for p in pages
-    ]
+        translated_pages = [
+            GoogleTranslator(source=detected_lang, target=target_lang).translate(p)
+            for p in pages
+        ]
 
-    html_content = "<br><hr>".join(
-        f"<h3>Página {i+1}</h3><pre>{p}</pre>" for i, p in enumerate(translated_pages)
-    )
+        html_content = "<br><hr>".join(
+            f"<h3>Página {i+1}</h3><pre>{p}</pre>" for i, p in enumerate(translated_pages)
+        )
 
-    return render_template('result.html', title='Resultado', translated_text=html_content, description='Texto extraído e traduzido do PDF.')
+        return render_template('result.html', title='Resultado', translated_text=html_content, description='Texto extraído e traduzido do PDF.')
+    except Exception as e:
+        flash(f'Erro ao processar PDF: {str(e)}', 'error')
+        return render_template('index.html')
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
 
 @main.route('/translate_to_pdf', methods=['POST'])
 def translate_to_pdf():
     file = request.files['file']
     filepath = os.path.join(UPLOAD_FOLDER, file.filename)
     file.save(filepath)
+    try:
+        target_lang = request.form['language']
+        translated_doc = translate_pdf_preserving_layout(filepath, target_lang)
 
-    target_lang = request.form['language']
-    translated_doc = translate_pdf_preserving_layout(filepath, target_lang)
+        filename = os.path.splitext(file.filename)[0]
+        output_filename = f"{filename}_translated_{target_lang}.pdf"
+        output_path = os.path.join(UPLOAD_FOLDER, output_filename)
 
-    filename = os.path.splitext(file.filename)[0]
-    output_filename = f"{filename}_translated_{target_lang}.pdf"
-    output_path = os.path.join(UPLOAD_FOLDER, output_filename)
+        translated_doc.save(output_path)
+        translated_doc.close()
 
-    translated_doc.save(output_path)
-    translated_doc.close()
-
-    flash('PDF traduzido com sucesso!', 'success')
-    return send_file(output_path, as_attachment=True)
+        flash('PDF traduzido com sucesso!', 'success')
+        return send_file(output_path, as_attachment=True)
+    except Exception as e:
+        flash(f'Erro ao processar PDF: {str(e)}', 'error')
+        return render_template('index.html')
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
 
 @main.route('/translate_image', methods=['POST'])
 def translate_image():
+    file = request.files['file']
+    filepath = os.path.join(UPLOAD_FOLDER, file.filename)
+    file.save(filepath)
     try:
-        file = request.files['file']
-        filepath = os.path.join(UPLOAD_FOLDER, file.filename)
-        file.save(filepath)
         target_lang = request.form['language']
         translated_text = translate_image_text(filepath, target_lang)
         return render_template('result.html', title='Resultado',
@@ -70,3 +86,6 @@ def translate_image():
     except RuntimeError as e:
         flash(str(e), 'error')
         return render_template('index.html')
+    finally:
+        if os.path.exists(filepath):
+            os.remove(filepath)
