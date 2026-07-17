@@ -714,7 +714,15 @@ def _expanded_rect(item, page_rect, obstacles):
         rect.y1 = max(rect.y1, min(max_y1, original.y1 + max(item["size"] * 1.8, original.height)))
     elif item["kind"] == "heading":
         extra_height = max(item["size"] * 1.8, original.height * 1.4)
-        rect.x1 = max(rect.x1, max_x1)
+        original_center = (original.x0 + original.x1) / 2
+        page_center = (page_rect.x0 + page_rect.x1) / 2
+        if abs(original_center - page_center) <= page_rect.width * 0.08:
+            rect.x0 = page_rect.x0 + PAGE_MARGIN
+            rect.x1 = page_rect.x1 - PAGE_MARGIN
+            item["align"] = fitz.TEXT_ALIGN_CENTER
+        else:
+            rect.x1 = max(rect.x1, max_x1)
+            item["align"] = fitz.TEXT_ALIGN_LEFT
         rect.y1 = max(rect.y1, min(max_y1, original.y1 + extra_height))
     else:
         column_x1 = original.x1
@@ -740,6 +748,7 @@ def _insert_fitted_text(page, rect, text, item):
         return True
 
     lineheight = 1.0 if item["kind"] == "block" else 0.95
+    align = item.get("align", fitz.TEXT_ALIGN_LEFT)
 
     def _fits(candidate, size):
         font_args, candidate = _text_font_args(item, candidate)
@@ -751,7 +760,7 @@ def _insert_fitted_text(page, rect, text, item):
             fontsize=size,
             lineheight=lineheight,
             fill=item["color"],
-            align=fitz.TEXT_ALIGN_LEFT,
+            align=align,
             **font_args,
         )
         scratch.close()
@@ -773,7 +782,7 @@ def _insert_fitted_text(page, rect, text, item):
             fontsize=size,
             lineheight=lineheight,
             fill=item["color"],
-            align=fitz.TEXT_ALIGN_LEFT,
+            align=align,
             **font_args,
         )
         if ret >= 0:
@@ -786,7 +795,7 @@ def _insert_fitted_text(page, rect, text, item):
             fontsize=size,
             lineheight=lineheight,
             fill=item["color"],
-            align=fitz.TEXT_ALIGN_LEFT,
+            align=align,
             **font_args,
         )
         if ret >= 0:
@@ -811,7 +820,7 @@ def _insert_fitted_text(page, rect, text, item):
             fontsize=MIN_FONT_SIZE,
             lineheight=lineheight,
             fill=item["color"],
-            align=fitz.TEXT_ALIGN_LEFT,
+            align=align,
             **font_args,
         )
     return False
