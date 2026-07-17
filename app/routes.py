@@ -1,4 +1,4 @@
-from flask import render_template, request, flash, Blueprint, send_file
+from flask import render_template, request, flash, Blueprint, send_file, session
 import os
 import tempfile
 import io
@@ -12,13 +12,18 @@ main = Blueprint('main', __name__)
 
 TEMP_DIR = tempfile.mkdtemp(prefix='pdftranslate_')
 
+def clear_flashes():
+    session.pop('_flashes', None)
+
 @main.route('/')
 @main.route('/index')
 def index():
+    clear_flashes()
     return render_template('index.html')
 
 @main.route('/translate', methods=['POST'])
 def translate():
+    clear_flashes()
     file = request.files['file']
     filepath = os.path.join(TEMP_DIR, file.filename)
     file.save(filepath)
@@ -50,6 +55,7 @@ def translate():
 
 @main.route('/translate_to_pdf', methods=['POST'])
 def translate_to_pdf():
+    clear_flashes()
     file = request.files['file']
     filepath = os.path.join(TEMP_DIR, file.filename)
     file.save(filepath)
@@ -79,6 +85,7 @@ def translate_to_pdf():
 
 @main.route('/translate_image', methods=['POST'])
 def translate_image():
+    clear_flashes()
     file = request.files['file']
     filepath = os.path.join(TEMP_DIR, file.filename)
     file.save(filepath)
