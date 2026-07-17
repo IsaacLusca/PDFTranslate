@@ -82,6 +82,10 @@
       </div>
       <h3>Imagem para Texto</h3>
       <p class="service-desc">Extraia texto de imagens com OCR e traduza.</p>
+      <!-- A funcionalidade OCR requer Tesseract instalado no servidor.
+           Na versão gratuita do Render, o Tesseract não está disponível,
+           portanto esta função pode apresentar erro ao usar online.
+           Localmente, com o Tesseract instalado, funciona normalmente. -->
       <form action="/translate_image" method="post" enctype="multipart/form-data">
         <div class="input-group">
           <label for="file3">Arquivo de imagem</label>
