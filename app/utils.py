@@ -110,16 +110,22 @@ def translate_pdf_preserving_layout(path, target_lang):
 
         for span, tr in zip(spans, translated):
             r = fitz.Rect(span["bbox"])
-            r.x1 = min(r.x1, page.rect.x1)
-            r.x0 = max(r.x0, page.rect.x0)
-            page.insert_textbox(
-                r,
-                tr,
-                fontsize=span["size"],
-                fontname="helv",
-                fill=(0,0,0),
-                align=fitz.TEXT_ALIGN_LEFT,
-            )
+            r.x0 = max(r.x0, page.rect.x0 + 2)
+            r.x1 = min(r.x1, page.rect.x1 - 2)
+            r.y1 = min(r.y1, page.rect.y1 - 2)
+
+            fs = span["size"]
+            while fs > 4:
+                ret = page.insert_textbox(
+                    r, tr,
+                    fontsize=fs,
+                    fontname="helv",
+                    fill=(0,0,0),
+                    align=fitz.TEXT_ALIGN_LEFT,
+                )
+                if ret >= 0:
+                    break
+                fs -= 1
     return dst
 
 def generate_translated_pdf(translated_doc, output_path):
