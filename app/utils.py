@@ -139,35 +139,37 @@ def translate_pdf_preserving_layout(path, target_lang):
 
         page.apply_redactions(images=fitz.PDF_REDACT_IMAGE_NONE, graphics=fitz.PDF_REDACT_LINE_ART_NONE)
 
-        span_areas = [(span, tr, fitz.Rect(span["bbox"])) for span, tr in zip(spans, translated)]
-        span_areas.sort(key=lambda x: (x[2].y0, x[2].x0))
-
-        for i, (span, tr, r) in enumerate(span_areas):
+        for span, tr in zip(spans, translated):
+            r = fitz.Rect(span["bbox"])
             r.x0 = max(r.x0, page.rect.x0 + 2)
             r.x1 = min(r.x1, page.rect.x1 - 2)
             if r.x0 >= r.x1:
                 r.x1 = r.x0 + 10
-
-            if i + 1 < len(span_areas):
-                next_top = span_areas[i + 1][2].y0
-                r.y1 = min(next_top, page.rect.y1 - 2)
-            else:
-                r.y1 = page.rect.y1 - 2
-            r.y1 = max(r.y1, r.y0 + span["size"] * 1.2)
             r.y0 = max(r.y0, page.rect.y0 + 2)
+            r.y1 = min(r.y1, page.rect.y1 - 2)
 
-            fs = span["size"]
-            while fs > 4:
-                ret = page.insert_textbox(
-                    r, tr,
-                    fontsize=fs,
-                    fontname=_span_fontname(span),
-                    fill=_span_color(span),
-                    align=fitz.TEXT_ALIGN_LEFT,
-                )
-                if ret >= 0:
-                    break
-                fs -= 1
+            ret = page.insert_textbox(
+                r, tr,
+                fontsize=span["size"],
+                fontname=_span_fontname(span),
+                fill=_span_color(span),
+                align=fitz.TEXT_ALIGN_LEFT,
+            )
+
+            if ret < 0:
+                r.y1 = page.rect.y1 - 2
+                fs = span["size"]
+                while fs > 4:
+                    ret = page.insert_textbox(
+                        r, tr,
+                        fontsize=fs,
+                        fontname=_span_fontname(span),
+                        fill=_span_color(span),
+                        align=fitz.TEXT_ALIGN_LEFT,
+                    )
+                    if ret >= 0:
+                        break
+                    fs -= 1
     return dst
 
 def generate_translated_pdf(translated_doc, output_path):
