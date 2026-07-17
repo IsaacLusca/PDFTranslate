@@ -2,6 +2,8 @@
 
 Aplicação web para tradução automática de documentos PDF e imagens, utilizando OCR com redes neurais e modelos de tradução automática.
 
+**🔗 Live:** https://pdftranslate.onrender.com
+
 ## Funcionalidades
 
 - **PDF para PDF:** Traduz o documento mantendo o layout original
@@ -21,27 +23,25 @@ Aplicação web para tradução automática de documentos PDF e imagens, utiliza
 ## Como rodar
 
 ```bash
-# Clone o repositório
 git clone https://github.com/IsaacLusca/PDFTranslate.git
 cd PDFTranslate
 
-# Crie e ative o ambiente virtual
 python -m venv .venv
 .venv\Scripts\activate   # Windows
 # source .venv/bin/activate   # Linux/Mac
 
-# Instale as dependências
 pip install -r requirements.txt
 
-# Instale o Tesseract OCR (necessário para tradução de imagens)
-# Baixe em: https://github.com/tesseract-ocr/tesseract
-# E configure o caminho em app/utils.py
-
-# Execute o servidor
-python run.py
+python wsgi.py
 ```
 
 Acesse em: `http://localhost:5000`
+
+## Deploy
+
+O projeto está hospedado no Render: https://pdftranslate.onrender.com
+
+> ⚠️ A função de OCR de imagem (Tesseract) não funciona no Render por limitações do ambiente gratuito. As funções de PDF para texto e PDF para PDF funcionam normalmente.
 
 ## Estrutura do projeto
 
@@ -56,7 +56,7 @@ PDFTranslate/
 │   ├── __init__.py            # Factory do app Flask
 │   ├── routes.py              # Rotas da aplicação
 │   └── utils.py               # Funções de OCR, PDF e tradução
-├── run.py                     # Ponto de entrada
+├── wsgi.py                    # Ponto de entrada
 ├── requirements.txt           # Dependências
 └── README.md
 ```
