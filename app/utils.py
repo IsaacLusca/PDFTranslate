@@ -1,9 +1,34 @@
-import fitz 
+import fitz
 from deep_translator import GoogleTranslator
 from langdetect import detect
 from PIL import Image
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+def _span_fontname(span):
+    flags = span.get("flags", 0)
+    font = span.get("font", "").lower()
+    bold = bool(flags & 16) or any(x in font for x in ("bold", "heavy", "black", "demi"))
+    italic = bool(flags & 2) or any(x in font for x in ("italic", "oblique"))
+    mono = bool(flags & 8) or any(x in font for x in ("courier", "mono", "typewriter"))
+
+    if mono:
+        if bold and italic: return "Courier-BoldOblique"
+        if bold: return "Courier-Bold"
+        if italic: return "Courier-Oblique"
+        return "Courier"
+    if bold and italic: return "Helvetica-BoldOblique"
+    if bold: return "Helvetica-Bold"
+    if italic: return "Helvetica-Oblique"
+    return "Helvetica"
+
+
+def _span_color(span):
+    c = span.get("color", 0)
+    if c is None:
+        return (0, 0, 0)
+    return ((c >> 16) & 0xFF) / 255.0, ((c >> 8) & 0xFF) / 255.0, (c & 0xFF) / 255.0
 
 TESSERACT_CMD = os.environ.get('TESSERACT_CMD', 'tesseract')
 pytesseract = None
@@ -120,7 +145,8 @@ def translate_pdf_preserving_layout(path, target_lang):
         for i, (span, tr, r) in enumerate(span_areas):
             r.x0 = max(r.x0, page.rect.x0 + 2)
             r.x1 = min(r.x1, page.rect.x1 - 2)
-            r.x0 = min(r.x0, r.x1 - 10)
+            if r.x0 >= r.x1:
+                r.x1 = r.x0 + 10
 
             if i + 1 < len(span_areas):
                 next_top = span_areas[i + 1][2].y0
@@ -130,12 +156,18 @@ def translate_pdf_preserving_layout(path, target_lang):
             r.y1 = max(r.y1, r.y0 + span["size"] * 1.2)
             r.y0 = max(r.y0, page.rect.y0 + 2)
 
-            page.insert_textbox(
-                r, tr,
-                fontsize=span["size"],
-                fontname="helv",
-                align=fitz.TEXT_ALIGN_LEFT,
-            )
+            fs = span["size"]
+            while fs > 4:
+                ret = page.insert_textbox(
+                    r, tr,
+                    fontsize=fs,
+                    fontname=_span_fontname(span),
+                    fill=_span_color(span),
+                    align=fitz.TEXT_ALIGN_LEFT,
+                )
+                if ret >= 0:
+                    break
+                fs -= 1
     return dst
 
 def generate_translated_pdf(translated_doc, output_path):
