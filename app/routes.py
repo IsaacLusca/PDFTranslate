@@ -3,9 +3,8 @@ import os
 import tempfile
 import io
 from langdetect import detect
-from deep_translator import GoogleTranslator
 
-from app.utils import extract_text_from_pdf, translate_text_list, extract_and_translate_pdf, generate_pdf_from_text
+from app.utils import extract_text_from_pdf, translate_text, translate_text_list, extract_and_translate_pdf, generate_pdf_from_text
 from app.utils import translate_image_text, extract_text_from_image, translate_pdf_preserving_layout, translate_pdf_with_overlay_mask
 
 main = Blueprint('main', __name__)
@@ -37,7 +36,7 @@ def translate():
         detected_lang = detect(pages[0]) if pages[0].strip() else 'auto'
 
         translated_pages = [
-            GoogleTranslator(source=detected_lang, target=target_lang).translate(p)
+            translate_text(p, target_lang, source=detected_lang)
             for p in pages
         ]
 

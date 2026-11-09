@@ -1,12 +1,12 @@
 import math
 import fitz
-from deep_translator import GoogleTranslator
+from deep_translator import GoogleTranslator, MyMemoryTranslator
+from deep_translator.constants import MY_MEMORY_LANGUAGES_TO_CODES
 from langdetect import detect
 from PIL import Image
 import os
 import re
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 PAGE_MARGIN = 2
@@ -52,6 +52,76 @@ FONT_CANDIDATES = {
         "/usr/share/fonts/truetype/liberation2/LiberationSans-BoldItalic.ttf",
     ],
 }
+
+_google_available = True
+
+
+def _chunk_text(text, limit=450):
+    words = text.split()
+    chunks = []
+    current = ""
+    for word in words:
+        if current and len(current) + len(word) + 1 > limit:
+            chunks.append(current)
+            current = word
+        else:
+            current = f"{current} {word}".strip()
+    if current:
+        chunks.append(current)
+    return chunks or [text]
+
+
+def _mymemory_language_name(code):
+    code = (code or "").lower()
+    for name, value in MY_MEMORY_LANGUAGES_TO_CODES.items():
+        value = value.lower()
+        if value == code or value.split("-")[0] == code:
+            return name
+    return None
+
+
+def _translate_with_mymemory(text, source, target):
+    source_name = _mymemory_language_name(source)
+    target_name = _mymemory_language_name(target)
+    if not source_name or not target_name:
+        return None
+    translator = MyMemoryTranslator(source=source_name, target=target_name)
+    translated = []
+    for chunk in _chunk_text(text):
+        result = translator.translate(chunk)
+        if not result or "INVALID SOURCE LANGUAGE" in result.upper():
+            return None
+        translated.append(result)
+    return " ".join(translated)
+
+
+def translate_text(text, target, source="auto"):
+    if not text or not text.strip():
+        return text
+
+    detected_source = detect(text) if source == "auto" else source
+    if detected_source == target:
+        return text
+
+    global _google_available
+    if _google_available:
+        try:
+            return GoogleTranslator(source=detected_source, target=target).translate(text)
+        except Exception:
+            _google_available = False
+
+    try:
+        translated = _translate_with_mymemory(text, detected_source, target)
+        if translated:
+            return translated
+    except Exception:
+        pass
+
+    return text
+
+
+def translate_texts(texts, target, source="auto"):
+    return [translate_text(text, target, source) for text in texts]
 
 
 def _span_fontname(span):
@@ -848,29 +918,11 @@ def extract_text_from_pdf(path):
 
 # Função para traduzir uma lista de textos
 def translate_text_list(texts, dest, max_workers=10):
-    # traduções de textos paralelos
-    def _translate(t):
-        try:
-            return GoogleTranslator(source='auto', target=dest).translate(t)
-        except Exception:
-            return t
-
-    results = [None] * len(texts)
-    with ThreadPoolExecutor(max_workers=max_workers) as exe:
-        futures = {exe.submit(_translate, texts[i]): i for i in range(len(texts))}
-        for fut in as_completed(futures):
-            idx = futures[fut]
-            results[idx] = fut.result()
-    return results
+    return translate_texts(texts, dest)
 
 # Função para extrair e traduzir o texto do PDF
 def extract_and_translate_pdf(path, target_lang):
-    pages = extract_text_from_pdf(path)
-    translated_pages = [
-        GoogleTranslator(source='auto', target=target_lang).translate(p)
-        for p in pages
-    ]
-    return translated_pages
+    return translate_texts(extract_text_from_pdf(path), target_lang)
 
 # Função para gerar um PDF a partir de uma lista de textos
 def generate_pdf_from_text(pages, output_path):
@@ -889,8 +941,7 @@ def extract_text_from_image(image_path):
 
 def translate_image_text(image_path, target_lang):
     text = extract_text_from_image(image_path)
-    translated_text = GoogleTranslator(source='auto', target=target_lang).translate(text)
-    return translated_text
+    return translate_text(text, target_lang)
     
 
 def _prepare_page_translation(page, target_lang):
